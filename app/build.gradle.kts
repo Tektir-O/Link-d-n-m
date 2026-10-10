@@ -8,7 +8,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kadir.linkmp3.mobile"
+        applicationId = "com.kadir.linkmp3.pro"
         minSdk = 26
         targetSdk = 34
         versionCode = 3
