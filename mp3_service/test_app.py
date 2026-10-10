@@ -149,7 +149,7 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(body, b"ID3-quality")
 
     def test_mp3_response(self):
-        def fake_converter(url, video_id, folder):
+        def fake_converter(url, video_id, folder, quality=192):
             output = folder / (video_id + ".mp3")
             output.write_bytes(b"ID3-test-audio")
             return output
