@@ -7,8 +7,8 @@ import org.junit.Test
 
 class IntroSelectionTest {
     @Test fun avoidsCuttingTheFirstWord() {
-        assertEquals(3200L, IntroSelection.proposal(5000L, 180000L))
-        assertEquals(11200L, IntroSelection.proposal(13000L, 180000L))
+        assertEquals(3000L, IntroSelection.proposal(5000L, 180000L))
+        assertEquals(11000L, IntroSelection.proposal(13000L, 180000L))
     }
 
     @Test fun firstThreeSecondsAreNeverAutomaticallyCut() {
@@ -21,7 +21,7 @@ class IntroSelectionTest {
         val originalStart = 0L
         val optionalSuggestion = IntroSelection.proposal(21000L, 120000L)
         assertEquals(0L, originalStart)
-        assertEquals(19200L, optionalSuggestion)
+        assertEquals(19000L, optionalSuggestion)
     }
 
     @Test fun halfSecondManualAdjustmentWorks() {
