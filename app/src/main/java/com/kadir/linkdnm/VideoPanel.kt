@@ -13,6 +13,8 @@ import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
+import android.text.InputType
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -41,6 +43,14 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     private val state = text("Video hazırlamak için fotoğraf seç.")
     private val progress = ProgressBar(host, null, android.R.attr.progressBarStyleHorizontal)
     private val make = button("🎬 VİDEO OLUŞTUR", true)
+    private val durationInput = EditText(host).apply {
+        inputType = InputType.TYPE_CLASS_NUMBER
+        setSingleLine(true)
+        setText("1")
+        textSize = 20f
+        hint = "Video süresi (dakika, 1-4)"
+        contentDescription = "Video süresi dakika"
+    }
     private val abort = button("İptal Et")
     private val listen = button("▶ Seçilen başlangıcı dinle")
     private val suggestionStatus = text("Öneri aranıyor...", 14f)
@@ -107,6 +117,8 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         // One minute, from the exact beginning, no hidden auto-seek or confusing controls.
         minute=1
         startAt=0L
+        add(container,text("Video süresi (dakika, 1-4)", 17f, true),4)
+        add(container,durationInput,12)
         add(container,make.apply {
             textSize=22f; minHeight=dp(78)
             setOnClickListener{generate()}
@@ -165,6 +177,10 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
             }
         }
     }
+    fun selectSavedCut(uri: Uri) {
+        selectAudio(uri, "Kesilen müzik hazır")
+    }
+
     private fun chooseStart(value: Long) {
         stopPreview()
         startAt = IntroSelection.clamp(value, soundLength)
@@ -240,6 +256,12 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         val img=image?:run{state.text="Önce fotoğraf seç.";return}
         val mp3=sound?:run{state.text="Önce müzik seç.";return}
         if(runner.busy)return
+        val chosenMinutes = durationInput.text.toString().toIntOrNull()
+        if(chosenMinutes == null || chosenMinutes !in 1..4) {
+            state.text = "Video süresini 1 ile 4 dakika arasında gir."
+            return
+        }
+        minute = chosenMinutes
         stopPreview();make.isEnabled=false;abort.visibility=View.VISIBLE
         progress.progress=0;progress.visibility=View.VISIBLE;state.text="Video hazırlanıyor. Bekle..."
         try{
