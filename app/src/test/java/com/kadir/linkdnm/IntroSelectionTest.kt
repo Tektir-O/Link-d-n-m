@@ -7,8 +7,8 @@ import org.junit.Test
 
 class IntroSelectionTest {
     @Test fun avoidsCuttingTheFirstWord() {
-        assertEquals(3000L, IntroSelection.proposal(5000L, 180000L))
-        assertEquals(11000L, IntroSelection.proposal(13000L, 180000L))
+        assertEquals(3200L, IntroSelection.proposal(5000L, 180000L))
+        assertEquals(11200L, IntroSelection.proposal(13000L, 180000L))
     }
 
     @Test fun firstThreeSecondsAreNeverAutomaticallyCut() {
@@ -21,13 +21,13 @@ class IntroSelectionTest {
         val originalStart = 0L
         val optionalSuggestion = IntroSelection.proposal(21000L, 120000L)
         assertEquals(0L, originalStart)
-        assertEquals(19000L, optionalSuggestion)
+        assertEquals(19200L, optionalSuggestion)
     }
 
-    @Test fun halfSecondManualAdjustmentWorks() {
+    @Test fun tenthSecondManualAdjustmentWorks() {
         val duration=90000L
-        assertEquals(500L, IntroSelection.offset(0,500,duration))
-        assertEquals(1000L, IntroSelection.offset(1500,-500,duration))
+        assertEquals(100L, IntroSelection.offset(0,100,duration))
+        assertEquals(1400L, IntroSelection.offset(1500,-100,duration))
         assertEquals(0L, IntroSelection.offset(0,-2000,duration))
         assertEquals(88500L, IntroSelection.offset(90000,2000,duration))
     }
@@ -52,6 +52,7 @@ class IntroSelectionTest {
         assertEquals("00:00.0", IntroSelection.label(0))
         assertEquals("00:01.5", IntroSelection.label(1500))
         assertEquals("01:02.5", IntroSelection.label(62500))
+        assertEquals("00:08.7", IntroSelection.label(8700))
         assertTrue(IntroSelection.label(90000).startsWith("01:30"))
     }
 }
