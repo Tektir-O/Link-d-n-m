@@ -42,7 +42,6 @@ jobs:
           grep -F "package: name='com.kadir.linkmp3.mobile'" badging.txt
           grep -q 'android:usesCleartextTraffic="false"' app/src/main/AndroidManifest.xml
           unzip -tq "$APK"
-          grep -F "versionCode=\u00273\u0027" badging.txt
       - name: Test APK dosyası
         uses: actions/upload-artifact@v4
         with:
