@@ -177,6 +177,10 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
             }
         }
     }
+    fun selectSavedCut(uri: Uri) {
+        selectAudio(uri, "Kesilen müzik hazır")
+    }
+
     private fun chooseStart(value: Long) {
         stopPreview()
         startAt = IntroSelection.clamp(value, soundLength)
