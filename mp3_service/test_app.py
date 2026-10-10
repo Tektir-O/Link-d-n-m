@@ -197,6 +197,57 @@ class HttpTests(unittest.TestCase):
         self.assertNotIn("error_code", json.loads(body))
         self.assertIsNone(headers.get("Retry-After"))
 
+
+    def test_captcha_defaults_to_off_for_existing_clients(self):
+        with patch.object(Handler, "captcha_sitekey", ""), \
+             patch.object(Handler, "captcha_secret", ""), \
+             patch.object(Handler, "captcha_hostname", ""):
+            with urlopen(self.base + "/captcha-config") as response:
+                self.assertEqual(json.loads(response.read()), {"required": False})
+
+    def test_captcha_is_real_server_enforced_when_configured(self):
+        with patch.object(Handler, "captcha_sitekey", "public-sitekey"), \
+             patch.object(Handler, "captcha_secret", "private-test-secret"), \
+             patch.object(Handler, "captcha_hostname", "example.org"):
+            with urlopen(self.base + "/captcha-config") as response:
+                self.assertEqual(json.loads(response.read()), {"required": True})
+            code, body, _ = self.post("/convert")
+            self.assertEqual(code, 403)
+            self.assertEqual(json.loads(body)["error_code"], "CAPTCHA_REQUIRED")
+            with patch("app.check_captcha", return_value=False) as rejected:
+                code, body, _ = self.post("/convert", payload={
+                    "url": "https://youtu.be/dQw4w9WgXcQ", "captcha_token": "bad-token",
+                })
+                self.assertEqual(code, 403)
+                rejected.assert_called_once_with("bad-token", "private-test-secret", "example.org")
+            def fake_converter(url, video_id, folder, quality=192):
+                output = folder / (video_id + ".mp3")
+                output.write_bytes(b"ID3 captcha accepted")
+                return output
+            with patch("app.check_captcha", return_value=True) as accepted, \
+                 patch("app.convert", side_effect=fake_converter):
+                code, body, _ = self.post("/convert", payload={
+                    "url": "https://youtu.be/dQw4w9WgXcQ",
+                    "captcha_token": "one-use-cloudflare-token",
+                })
+                self.assertEqual(code, 200)
+                self.assertEqual(body, b"ID3 captcha accepted")
+                accepted.assert_called_once_with(
+                    "one-use-cloudflare-token", "private-test-secret", "example.org"
+                )
+            with urlopen(self.base + "/captcha") as response:
+                markup = response.read().decode("utf-8")
+                self.assertIn("challenges.cloudflare.com/turnstile/v0/api.js", markup)
+                self.assertIn("public-sitekey", markup)
+                self.assertNotIn("private-test-secret", markup)
+                self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+
+    def test_captcha_rejects_blank_or_wrong_type(self):
+        from app import check_captcha
+        self.assertFalse(check_captcha("", "secret", "example.org"))
+        self.assertFalse(check_captcha("x" * 2049, "secret", "example.org"))
+        self.assertFalse(check_captcha(None, "secret", "example.org"))
+
     def test_mp3_response(self):
         def fake_converter(url, video_id, folder, quality=192):
             output = folder / (video_id + ".mp3")
