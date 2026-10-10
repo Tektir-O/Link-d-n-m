@@ -8,12 +8,12 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kadir.muzikindir.kolay"
+        applicationId = "com.kadir.muzikindir.video"
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 4
-        versionName = "2.1.0"
+        versionCode = 5
+        versionName = "2.3.0"
     }
 
     buildTypes {
@@ -38,6 +38,9 @@ android {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")
+    implementation("androidx.media3:media3-transformer:1.9.0")
+    implementation("androidx.media3:media3-common:1.9.0")
+    implementation("androidx.media3:media3-effect:1.9.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
