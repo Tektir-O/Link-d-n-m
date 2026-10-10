@@ -50,3 +50,20 @@ Docker konteynerindeki yt-dlp/FFmpeg kurulum süresi dağıtım aşamasındadır
 - Railway'de kaynak olarak **GitHub repo bağlantısı ayrı izin ister**. Bağlanmadıysa Docker imajı testlerde başarılı olsa bile canlı Railway servisi eski kaynak imajını kullanmaya devam edebilir.
 
 Testler: `cd mp3_service && python -m unittest -v test_app.py`. CI, Docker imajının Deno / EJS / FFmpeg araçlarını, `/health` yanıtını, geçersiz URL reddini ve Android MP3/video testlerini denetler.
+
+
+## İsteğe bağlı gerçek "Ben robot değilim" (Cloudflare Turnstile)
+
+Bu özellik **YouTube'un sunucu IP'sine koyduğu giriş/bot engelini çözmez**. Yalnızca Link MP3 sunucusunun otomatik/kötüye kullanılan çağrılara karşı korunması içindir.
+
+1. Cloudflare Dashboard → Turnstile bölümünden **Managed** widget oluşturun. İzin verilen alan adına `link-mp3-api-production.up.railway.app` ekleyin.
+2. Railway servisinde aşağıdaki gizli/ortam değişkenlerini ayarlayın:
+   - `TURNSTILE_SITEKEY`: Cloudflare'ın verdiği **public** site key.
+   - `TURNSTILE_SECRET`: Cloudflare'ın verdiği **secret**; APK'ya veya GitHub'a EKLEMEYİN.
+   - `TURNSTILE_HOSTNAME=link-mp3-api-production.up.railway.app`
+3. Site key, secret ve hostname **üçü de** tanımlanınca doğrulama etkinleşir. Üçü de yoksa CAPTCHA kapalıdır ve eski Android istemcisi çalışmaya devam eder. Kısmi yapılandırma servis başlangıcında reddedilir.
+4. Android uygulaması `GET /captcha-config` üzerinden durumu öğrenir. Etkinse aynı ekranda WebView içinde `GET /captcha` üzerinden gerçek Turnstile widget'ını gösterir. Kullanıcı tamamlayınca token, tek indirme isteğinde `POST /convert` içindeki `captcha_token` alanına eklenir.
+5. Sunucu bu kodu Cloudflare `/turnstile/v0/siteverify` API'sinde doğrular, `success`, beklenen `hostname` ve `mp3_convert` action alanlarını kontrol eder. Kodlar 5 dakika geçerlidir ve tek kullanımlıktır. Başarısız veya eksik token'da `403 CAPTCHA_REQUIRED` döner.
+6. Test: `GET /captcha-config` cevapları, doğru/yanlış token, kodsuz istek, site key HTML sayfası ve gizli anahtar sızmaması birim testlerinde doğrulanır. Canlı widget'ı etkinleştirmek için Cloudflare widget anahtarları şarttır.
+
+Kullanıcının telefonunda sadece bir kez doğrulama yapması mümkündür; her MP3 isteği için yeni token gerekir. Bu nedenle kolay kullanıcı deneyimi açısından korumayı gerekmediği sürece açmayın.
