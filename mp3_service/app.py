@@ -6,6 +6,8 @@ import re
 import subprocess
 import tempfile
 import threading
+from collections import deque
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -15,6 +17,36 @@ MAX_MP3_BYTES = 100 * 1024 * 1024
 MAX_REQUEST_BYTES = 2048
 CONVERT_TIMEOUT_SECONDS = 300
 SLOTS = threading.BoundedSemaphore(2)
+
+# Strict caps for public, no-login mobile conversions. Limits are per running instance;
+# for a multi-replica deployment, put a centralized limiter at the reverse proxy.
+RATE_WINDOW_SECONDS = 3600
+MAX_PUBLIC_REQUESTS_PER_HOUR = 12
+MAX_CLIENT_REQUESTS_PER_HOUR = 3
+RATE_LOCK = threading.Lock()
+PUBLIC_REQUESTS = deque()
+CLIENT_REQUESTS = {}
+
+
+def allow_public_request(ip: str, now: float | None = None) -> bool:
+    if now is None:
+        now = time.monotonic()
+    with RATE_LOCK:
+        while PUBLIC_REQUESTS and now - PUBLIC_REQUESTS[0] >= RATE_WINDOW_SECONDS:
+            PUBLIC_REQUESTS.popleft()
+        # Keep memory bounded by retaining at most one hour of IP tracking.
+        for key, timestamps in list(CLIENT_REQUESTS.items()):
+            while timestamps and now - timestamps[0] >= RATE_WINDOW_SECONDS:
+                timestamps.popleft()
+            if not timestamps:
+                del CLIENT_REQUESTS[key]
+        client = CLIENT_REQUESTS.setdefault(ip, deque())
+        if len(PUBLIC_REQUESTS) >= MAX_PUBLIC_REQUESTS_PER_HOUR or len(client) >= MAX_CLIENT_REQUESTS_PER_HOUR:
+            return False
+        client.append(now)
+        PUBLIC_REQUESTS.append(now)
+        return True
+
 
 
 def canonical_youtube_url(raw: str) -> tuple[str, str]:
@@ -71,7 +103,8 @@ def convert(url: str, video_id: str, folder: Path) -> Path:
 
 class Handler(BaseHTTPRequestHandler):
     api_key = ""
-    server_version = "LinkMp3/1.0"
+    public_mode = False
+    server_version = "LinkMp3/1.1"
 
     def respond_json(self, status: int, message: str):
         payload = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
@@ -95,9 +128,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/convert":
             return self.respond_json(404, "Sayfa bulunamadı.")
-        if not self.api_key:
-            return self.respond_json(503, "Sunucu anahtarı eksik.")
-        if not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + self.api_key):
+        authenticated = bool(self.api_key) and hmac.compare_digest(
+            self.headers.get("Authorization", ""), "Bearer " + self.api_key
+        )
+        if not authenticated and not self.public_mode:
             return self.respond_json(401, "Yetkilendirme başarısız.")
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
             return self.respond_json(415, "JSON gerekli.")
@@ -118,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
         if not SLOTS.acquire(blocking=False):
             return self.respond_json(429, "Sunucu meşgul. Tekrar deneyin.")
         try:
+            if not authenticated and not allow_public_request(self.client_address[0]):
+                return self.respond_json(429, "Saatlik dönüştürme sınırı doldu. Daha sonra tekrar deneyin.")
             with tempfile.TemporaryDirectory(prefix="link-mp3-") as directory:
                 try:
                     mp3 = convert(url, video_id, Path(directory))
@@ -146,9 +182,13 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     key = os.getenv("LINK_MP3_API_KEY", "")
-    if len(key) < 16:
-        raise SystemExit("LINK_MP3_API_KEY en az 16 karakter olmalı.")
+    public_mode = os.getenv("LINK_MP3_PUBLIC_MODE", "") == "1"
+    if not public_mode and len(key) < 16:
+        raise SystemExit("Gizli API anahtarı gerekli veya LINK_MP3_PUBLIC_MODE=1 olmalı.")
+    if key and len(key) < 16:
+        raise SystemExit("API anahtarı en az 16 karakter olmalı.")
     Handler.api_key = key
+    Handler.public_mode = public_mode
     port = int(os.getenv("PORT", "8080"))
     print(f"MP3 sunucusu 0.0.0.0:{port} dinliyor. HTTPS proxy kullanın.", flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
