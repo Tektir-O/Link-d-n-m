@@ -72,10 +72,14 @@ class VideoMaker(private val context: Context) {
 
     fun export(
         image: Uri, audio: Uri, minutes: Int, introMs: Long, songDurationMs: Long,
-        onSaved: (Uri) -> Unit, onError: (String) -> Unit
+        onSaved: (Uri) -> Unit, onError: (String) -> Unit,
+        testDurationMs: Long? = null
     ) {
         check(!working) { "Başka video hazırlanıyor." }
-        val duration = VideoPlan.durationMs(minutes)
+        // Unit/device tests use a short clip. Production UI only offers 1-4 minutes.
+        val duration = if (testDurationMs != null && testDurationMs in 1_000L..10_000L &&
+            (context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        ) testDurationMs else VideoPlan.durationMs(minutes)
         val start = VideoPlan.introMs(introMs, songDurationMs)
         working = true
         val job = ++serial
