@@ -34,9 +34,11 @@ jobs:
               grep -q 'error' /tmp/mp3-bad.json
               echo "Invalid URL rejected safely"
               # Generate a real two-second test video/audio on the CI runner.
-              ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=320x240:r=10 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 2 -c:v mpeg4 -q:v 8 -c:a aac -shortest -y /tmp/local-mp3-test.mp4
+              docker exec link-mp3-smoke ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=320x240:r=10 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 2 -c:v mpeg4 -q:v 8 -c:a aac -shortest -y /tmp/local-mp3-test.mp4
+              docker cp link-mp3-smoke:/tmp/local-mp3-test.mp4 /tmp/local-mp3-test.mp4
               curl --fail --silent --show-error --max-time 65 -X POST -H 'Content-Type: video/mp4' --data-binary @/tmp/local-mp3-test.mp4 http://127.0.0.1:18080/convert-file -o /tmp/local-mp3-output.mp3
-              ffprobe -v error -show_entries format=format_name,duration -of default=noprint_wrappers=1 /tmp/local-mp3-output.mp3 | tee /tmp/local-mp3-probe.txt
+              docker cp /tmp/local-mp3-output.mp3 link-mp3-smoke:/tmp/local-mp3-output.mp3
+              docker exec link-mp3-smoke ffprobe -v error -show_entries format=format_name,duration -of default=noprint_wrappers=1 /tmp/local-mp3-output.mp3 | tee /tmp/local-mp3-probe.txt
               grep -q mp3 /tmp/local-mp3-probe.txt
               test "$(stat -c%s /tmp/local-mp3-output.mp3)" -gt 1000
               echo "Real MP4 -> MP3 conversion verified"
