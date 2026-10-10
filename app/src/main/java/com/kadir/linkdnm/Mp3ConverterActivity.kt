@@ -500,7 +500,7 @@ class Mp3ConverterActivity : Activity() {
                 textSize = 15f
                 setOnClickListener {
                     startActivityForResult(Intent(this@Mp3ConverterActivity, AudioCutActivity::class.java)
-                        .putExtra("audio_uri", entry.uri.toString()))
+                        .putExtra("audio_uri", entry.uri.toString()), CUT_AUDIO_REQUEST)
                 }
             }
             actions.addView(edit, LinearLayout.LayoutParams(0, dp(52), 0.85f)
