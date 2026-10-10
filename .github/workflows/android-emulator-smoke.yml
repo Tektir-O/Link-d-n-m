@@ -39,12 +39,25 @@ jobs:
           script: |
             gradle --no-daemon :app:assembleDebug
             adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -n com.kadir.muzikindir.video25/com.kadir.linkdnm.Mp3ConverterActivity
-            sleep 5
-            adb shell pidof com.kadir.muzikindir.video25
-            adb shell uiautomator dump /sdcard/window.xml
-            adb pull /sdcard/window.xml window.xml >/dev/null
-            python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'BAĞLANTIYI YAPIŞTIR' in joined, joined; assert 'MP3 İNDİR' in joined, joined; assert 'TELEFONDAN VİDEO / SES' in joined, joined; assert 'İndirilen müziklerim' in joined, joined; assert 'İndirilen MP3' not in joined, 'Old second-page button still shown'"
+            # Pixel Launcher sometimes shows a transient "isn't responding" dialog
+            # during cold emulator boot. Retry app UI verification, not app tests.
+            ui_ok=0
+            for attempt in 1 2 3 4 5; do
+              adb shell am force-stop com.google.android.apps.nexuslauncher || true
+              adb shell am start -n com.kadir.muzikindir.video25/com.kadir.linkdnm.Mp3ConverterActivity
+              sleep 5
+              adb shell pidof com.kadir.muzikindir.video25 || true
+              adb shell uiautomator dump /sdcard/window.xml || true
+              adb pull /sdcard/window.xml window.xml >/dev/null || true
+              if python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'BAĞLANTIYI YAPIŞTIR' in joined, joined; assert 'MP3 İNDİR' in joined, joined; assert 'TELEFONDAN VİDEO / SES' in joined, joined; assert 'İndirilen müziklerim' in joined, joined; assert 'İndirilen MP3' not in joined, 'Old second-page button still shown'"; then
+                ui_ok=1
+                break
+              fi
+              echo "Emulator UI not ready on attempt $attempt; retrying"
+              adb shell input keyevent 4 || true
+              sleep 3
+            done
+            test "$ui_ok" -eq 1
             adb shell input swipe 530 1490 530 400 450
             adb shell input swipe 530 1490 530 400 450
             adb shell uiautomator dump /sdcard/video-window.xml
