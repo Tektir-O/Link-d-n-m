@@ -1,6 +1,7 @@
 package com.kadir.linkdnm
 
 import android.app.Activity
+import android.content.Intent
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -106,7 +107,7 @@ class AudioCutActivity : Activity() {
             paint.strokeWidth = 3f
             for (i in 0..180) {
                 val xx = 16f + usable * i / 180f
-                val amplitude = 12f + (abs(kotlin.math.sin(i * .41)) * 35).toFloat()
+                val amplitude = 26f // neutral timeline tick; not a fabricated audio waveform
                 paint.color = if (xx in x(startMs)..x(endMs)) Color.rgb(9, 106, 82)
                     else Color.rgb(166, 182, 174)
                 canvas.drawLine(xx, center - amplitude, xx, center + amplitude, paint)
@@ -190,12 +191,14 @@ class AudioCutActivity : Activity() {
                 val trimmed = Mp3FrameCutter.cut(data, listOf(begin to finish))
                 if (trimmed.isEmpty()) error("Kesilecek MP3 verisi bulunamadı.")
                 val filename = "video-yerelmedya0-192k-${System.currentTimeMillis()}.mp3"
-                Mp3Storage(this).save(ByteArrayInputStream(trimmed), trimmed.size.toLong(),
+                val saved = Mp3Storage(this).save(ByteArrayInputStream(trimmed), trimmed.size.toLong(),
                     filename, { false }) { _, _ -> }
                 runOnUiThread {
                     saving = false
                     refresh()
-                    Toast.makeText(this, "Yeni MP3 kaydedildi. Orijinal korundu.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Müzik kesildi. Video için hazır!", Toast.LENGTH_LONG).show()
+                    setResult(RESULT_OK, Intent().setData(saved.uri))
+                    finish()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
