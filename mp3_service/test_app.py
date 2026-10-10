@@ -53,6 +53,22 @@ class UrlTests(unittest.TestCase):
                 mp3 = convert("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ", Path(directory))
             self.assertEqual(mp3.read_bytes(), b"ID3fake")
 
+    def test_runtime_flag_for_deno_and_optional_ejs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            def fake_run(cmd, **kwargs):
+                self.assertIn("--js-runtimes", cmd)
+                self.assertEqual(cmd[cmd.index("--js-runtimes") + 1], "deno")
+                self.assertIn("--remote-components", cmd)
+                self.assertEqual(cmd[cmd.index("--remote-components") + 1], "ejs:npm")
+                self.assertIn("--ignore-config", cmd)
+                Path(directory, "dQw4w9WgXcQ.mp3").write_bytes(b"ID3mock")
+            with patch("app.shutil.which", side_effect=lambda tool: "/usr/bin/deno" if tool == "deno" else None), \
+                 patch("app.ENABLE_REMOTE_EJS", True), \
+                 patch("app.subprocess.run", side_effect=fake_run):
+                result = convert("https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                                 "dQw4w9WgXcQ", Path(directory))
+            self.assertEqual(result.read_bytes(), b"ID3mock")
+
 
 class HttpTests(unittest.TestCase):
     @classmethod
@@ -147,6 +163,39 @@ class HttpTests(unittest.TestCase):
             })
         self.assertEqual(status, 200)
         self.assertEqual(body, b"ID3-quality")
+
+    def test_youtube_verification_is_temporary_service_error(self):
+        import subprocess
+        fail = subprocess.CalledProcessError(
+            1, ["yt-dlp"], output="ERROR: Sign in to confirm you're not a bot. Use cookies."
+        )
+        with patch("app.convert", side_effect=fail):
+            code, body, headers = self.post("/convert")
+        self.assertEqual(code, 503)
+        self.assertEqual(headers.get("Retry-After"), "600")
+        payload = json.loads(body)
+        self.assertEqual(payload["error_code"], "YOUTUBE_VERIFICATION_REQUIRED")
+        self.assertIn("telefondaki MP3", payload["error"])
+
+    def test_signature_failure_is_classified(self):
+        import subprocess
+        fail = subprocess.CalledProcessError(
+            1, ["yt-dlp"], output="ERROR: Unable to extract signature"
+        )
+        with patch("app.convert", side_effect=fail):
+            code, body, headers = self.post("/convert")
+        self.assertEqual(code, 503)
+        self.assertEqual(headers.get("Retry-After"), "300")
+        self.assertEqual(json.loads(body)["error_code"], "EXTRACTOR_UPDATE_NEEDED")
+
+    def test_other_yt_dlp_error_is_not_mislabeled_youtube_login(self):
+        import subprocess
+        fail = subprocess.CalledProcessError(1, ["yt-dlp"], output="ERROR: network connection closed")
+        with patch("app.convert", side_effect=fail):
+            code, body, headers = self.post("/convert")
+        self.assertEqual(code, 502)
+        self.assertNotIn("error_code", json.loads(body))
+        self.assertIsNone(headers.get("Retry-After"))
 
     def test_mp3_response(self):
         def fake_converter(url, video_id, folder, quality=192):
