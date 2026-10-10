@@ -26,7 +26,21 @@ if [ "$ui_ok" -ne 1 ]; then
   exit 1
 fi
 
-adb shell input tap 360 1130 || true
+# Tap the Video button using its actual screen bounds, not a guessed coordinate.
+coords=$(python3 - <<'PY'
+import re
+import xml.etree.ElementTree as ET
+root=ET.parse("window.xml").getroot()
+for node in root.iter("node"):
+    if "VİDEO YAP" in node.get("text",""):
+        vals=list(map(int,re.findall(r"\d+",node.get("bounds",""))))
+        if len(vals)==4:
+            print((vals[0]+vals[2])//2,(vals[1]+vals[3])//2)
+            break
+PY
+)
+test -n "$coords"
+adb shell input tap $coords
 sleep 2
 adb shell input swipe 530 1300 530 500 420
 adb shell uiautomator dump /sdcard/video-window.xml
