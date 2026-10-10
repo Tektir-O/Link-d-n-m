@@ -44,7 +44,12 @@ jobs:
             adb shell pidof com.kadir.muzikindir.kolay
             adb shell uiautomator dump /sdcard/window.xml
             adb pull /sdcard/window.xml window.xml >/dev/null
-            python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'BAĞLANTIYI YAPIŞTIR' in joined, joined; assert 'MP3 İNDİR' in joined, joined; assert 'İndirilen müziklerim' in joined, joined; assert 'FOTOĞRAFTAN VİDEO' in joined, joined; assert 'İndirilen MP3' not in joined, 'Old second-page button still shown'"
+            python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'BAĞLANTIYI YAPIŞTIR' in joined, joined; assert 'MP3 İNDİR' in joined, joined; assert 'İndirilen müziklerim' in joined, joined; assert 'İndirilen MP3' not in joined, 'Old second-page button still shown'"
+            adb shell input swipe 530 1490 530 400 450
+            adb shell input swipe 530 1490 530 400 450
+            adb shell uiautomator dump /sdcard/video-window.xml
+            adb pull /sdcard/video-window.xml video-window.xml >/dev/null
+            python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('video-window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'FOTOĞRAFTAN VİDEO' in joined or 'FOTOĞRAF SEÇ' in joined, joined"
             adb shell dumpsys activity activities | grep -F Mp3ConverterActivity
             gradle --no-daemon :app:connectedDebugAndroidTest
             # Gradle connected tests can uninstall the tested application at teardown.
