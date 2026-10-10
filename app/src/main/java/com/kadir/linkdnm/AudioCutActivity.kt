@@ -85,7 +85,7 @@ class AudioCutActivity : Activity() {
                 var px=left+3
                 while(px<right-2) {
                     val seed=(px*0.29).toDouble()
-                    val amp=(12+abs(sin(seed)*cos(seed*.21))*min(height*.31,48.0)).toFloat()
+                    val amp=(12+abs(sin(seed)*cos(seed*.21))*min(height*.31f,48f).toDouble()).toFloat()
                     paint.color=if(i==1) Color.rgb(54,207,161) else Color.rgb(137,158,147)
                     c.drawRoundRect(px,middle-amp,px+3,middle+amp,2f,2f,paint)
                     px+=6
