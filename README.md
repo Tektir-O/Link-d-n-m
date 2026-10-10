@@ -71,3 +71,13 @@ Bu projeyi yalnızca indirme, kopyalama veya paylaşma hakkınızın bulunduğu 
 - Docker CI: gerçek test videosu üret, endpoint ile dönüştür, sonucu ffprobe ile MP3 ve süre doğrula.
 - Android cihaz testi: video-*.mp3 kaydet, listele, baytları oku ve sil. Ek olarak MP3 ve MP4 testleri korunur.
 - Farklı paket: com.kadir.muzikindir.video24, eski debug APK imzasıyla çakışmadan yan yana kurulur. Önceki sürümün MP3'leri Android depolama izinleri yüzünden yeni listede otomatik görünmeyebilir.
+
+## v2.5: Vokal girişinde geç başlama sorununun düzeltmesi
+
+- Eski otomatik tespit sesi kullanıcının onayı olmadan şarkının ortasına atabiliyordu. Artık varsayılan ses başlangıcı 00:00.0 ve analiz sonucu **asla otomatik uygulanmaz**.
+- İlk ses tahmini bulunursa kısa bir 1,8 saniyelik ön payla önerilir. **Tahmini dinle** ve **Tahmini kullan** düğmeleriyle seçilir. Bir algoritmanın şarkıcı sesi ile orkestrayı her parçada kesin ayırması mümkün değildir.
+- Manuel başlangıç 0,5 saniye çözünürlüklü çubuk ve -2/-0,5/+0,5/+2 saniye düğmeleriyle ayarlanır. İlk kelime kaçırıldıysa geriye alın.
+- MP3 önizlemesi artık seek işlemi tamamlanmadan başlamaz. Kullanıcının seçtiği milisaniye ile MP4 export clipping başlangıcı aynıdır.
+- İndirilen MP3, telefondan ses seçimi, 1/2/3/4 dakika video, video kaydı, paylaşım ve önceki yerel dosya→MP3 özelliği korunur. Bot/CAPTCHA kodu yok.
+- Birim testleri: hatalı/geç başlangıç, 1,8 sn geriden öneri, 0,5 sn ayar, uç nokta sınırı, önizleme ve export senkronizasyonu.
+- Önceki test APK'sıyla imza çatışmasına karşı ayrı `com.kadir.muzikindir.video25` paket kimliği kullanılır. Eski APK silinmez, ancak önceki MP3 indeksleri yeni pakete otomatik taşınmayabilir.

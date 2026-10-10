@@ -42,7 +42,10 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     private val progress = ProgressBar(host, null, android.R.attr.progressBarStyleHorizontal)
     private val make = button("🎬 VİDEO OLUŞTUR", true)
     private val abort = button("İptal Et")
-    private val listen = button("▶ Başlangıcı dinle")
+    private val listen = button("▶ Seçilen başlangıcı dinle")
+    private val suggestionStatus = text("Öneri aranıyor...", 14f)
+    private val suggestListen = button("▶ Tahmini dinle")
+    private val suggestApply = button("✓ Tahmini kullan")
     private val open = button("▶ Oluşturulan videoyu aç")
     private var minute = 1
     private var minuteButtons = mapOf<Int,Button>()
@@ -50,6 +53,8 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     private var sound: Uri? = null
     private var soundLength = 0L
     private var startAt = 0L
+    private var suggestedStart: Long? = null
+    private var detectionJob = 0
     private var player: MediaPlayer? = null
     private var videoUri: Uri? = null
     private var token = 0
@@ -94,19 +99,56 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         add(container,text("İndirdiğin MP3'ler:",15f),7)
         add(container,songList,8)
         add(container,button("🎵 TELEFONDAN SES SEÇ").apply{setOnClickListener{pick("audio/*",SOUND_REQUEST)}},18)
-        add(container,text("3. Şarkıcının başladığı yer",19f,true),8)
-        add(container,text("Otomatik tahmin yanlışsa kaydır. Sesini dinleyebilirsin.",14f),8)
+        add(container,text("3. Ses tam nereden başlasın?",19f,true),8)
+        add(container,text("Şarkının başı varsayılan. Şarkıcı geç giriyorsa tahmini dinle ve onayla; yanlışsa kendin ayarla.",14f),8)
         add(container,introStatus,4)
-        seek.max=60
+        seek.max = 0
         seek.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(b:SeekBar?,value:Int,fromUser:Boolean) {
-                if(fromUser){startAt=value*1000L;introStatus.text="Başlangıç: "+value+". saniye"}
+                if (fromUser) chooseStart(value * IntroSelection.STEP_MS)
             }
-            override fun onStartTrackingTouch(b:SeekBar?){}
-            override fun onStopTrackingTouch(b:SeekBar?){}
+            override fun onStartTrackingTouch(b:SeekBar?) {}
+            override fun onStopTrackingTouch(b:SeekBar?) {}
         })
-        add(container,seek,6)
-        add(container,listen.apply{setOnClickListener{preview()}},18)
+        add(container,seek,4)
+        val nudges = LinearLayout(host).apply { orientation=LinearLayout.HORIZONTAL }
+        listOf(
+            "◀ 2 sn" to -2000L, "◀ 0.5 sn" to -500L,
+            "+0.5 sn ▶" to 500L, "+2 sn ▶" to 2000L
+        ).forEach { (label, delta) ->
+            val b = button(label).apply {
+                textSize = 13f
+                setOnClickListener { chooseStart(startAt + delta) }
+            }
+            nudges.addView(b, LinearLayout.LayoutParams(0, dp(50), 1f).apply {
+                rightMargin=dp(3)
+            })
+        }
+        add(container,nudges,5)
+        add(container,button("↩ Şarkının en başına dön").apply {
+            setOnClickListener { chooseStart(0L) }
+        },12)
+        add(container,suggestionStatus,5)
+        val proposals = LinearLayout(host).apply { orientation=LinearLayout.HORIZONTAL }
+        suggestListen.visibility=View.GONE
+        suggestApply.visibility=View.GONE
+        suggestListen.textSize=14f
+        suggestApply.textSize=14f
+        proposals.addView(suggestListen,LinearLayout.LayoutParams(0,dp(55),1f).apply{rightMargin=dp(6)})
+        proposals.addView(suggestApply,LinearLayout.LayoutParams(0,dp(55),1f))
+        suggestListen.setOnClickListener {
+            suggestedStart?.let {
+                state.text="Tahmini dinliyorsun. İlk kelime eksikse başlangıcı biraz geri al."
+                listenFrom(it)
+            }
+        }
+        suggestApply.setOnClickListener {
+            suggestedStart?.let { chooseStart(it) }
+        }
+        add(container,proposals,8)
+        add(container,listen.apply {
+            setOnClickListener { if (player != null) stopPreview() else preview() }
+        },18)
         add(container,text("4. Video kaç dakika?",19f,true),10)
         val choices=LinearLayout(host).apply{orientation=LinearLayout.HORIZONTAL}
         minuteButtons=VideoPlan.minutes.associateWith{value->
@@ -172,50 +214,95 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
             }
         }
     }
+    private fun chooseStart(value: Long) {
+        stopPreview()
+        startAt = IntroSelection.clamp(value, soundLength)
+        seek.progress = (startAt / IntroSelection.STEP_MS).toInt()
+        introStatus.text = "Video ve önizleme başlangıcı: " + IntroSelection.label(startAt)
+    }
+
     private fun selectAudio(uri:Uri,name:String) {
         stopPreview()
-        sound=uri;soundStatus.text="✓ "+name
-        soundLength=try{
+        sound=uri
+        soundStatus.text="✓ "+name
+        val serial=++detectionJob
+        soundLength=try {
             val retriever=MediaMetadataRetriever()
             try {
                 retriever.setDataSource(host,uri)
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?:0L
-            }finally{retriever.release()}
-        }catch(_:Exception){0L}
-        startAt=0;seek.progress=0
-        seek.max=minOf(60,if(soundLength>2000)((soundLength-1500)/1000).toInt() else 60)
-        introStatus.text="Şarkıcının başladığı yer aranıyor..."
-        Thread{
-            val suggestion=IntroFinder.estimateMs(host,uri)
-            host.runOnUiThread{
-                if(sound==uri&&!host.isDestroyed){
-                    startAt=VideoPlan.introMs(suggestion,soundLength)
-                    seek.progress=(startAt/1000).toInt()
-                    introStatus.text=if(startAt==0L)"Tahmin: başlangıç 0. saniye" else "Tahmin: "+(startAt/1000)+". saniye"
+            } finally { retriever.release() }
+        } catch(_:Exception) { 0L }
+        suggestedStart=null
+        suggestListen.visibility=View.GONE
+        suggestApply.visibility=View.GONE
+        seek.max = (IntroSelection.maxStart(soundLength) / IntroSelection.STEP_MS).toInt()
+        chooseStart(0L)
+        suggestionStatus.text="İlk vokal girişi tahmin ediliyor. Video şimdilik şarkının başından başlayacak."
+        Thread {
+            val raw=IntroFinder.estimateMs(host,uri)
+            val candidate=IntroSelection.proposal(raw,soundLength)
+            host.runOnUiThread {
+                if(serial!=detectionJob||sound!=uri||host.isDestroyed) return@runOnUiThread
+                suggestedStart=candidate
+                if(candidate==null) {
+                    suggestionStatus.text="Güvenilir giriş tahmini bulunamadı. Çubukla ayarla ve dinle."
+                    suggestListen.visibility=View.GONE
+                    suggestApply.visibility=View.GONE
+                } else {
+                    suggestionStatus.text="Tahmini giriş: "+IntroSelection.label(candidate)+
+                        " (ilk kelimeyi kesmemek için biraz geriden). Önce dinle."
+                    suggestListen.visibility=View.VISIBLE
+                    suggestApply.visibility=View.VISIBLE
                 }
+                // Never change a manually selected or default position after analysis.
             }
         }.start()
     }
+
     private fun preview() {
-        val uri=sound?:run{state.text="Önce müzik seç.";return}
-        if(player!=null){stopPreview();return}
-        try{
-            val media=MediaPlayer()
-            player=media;media.setDataSource(host,uri)
-            val id=++token
-            media.setOnPreparedListener{
-                it.seekTo(startAt.toInt());it.start();listen.text="■ Durdur"
-                handler.postDelayed({if(token==id)stopPreview()},8000)
-            }
-            media.setOnErrorListener{_,_,_->stopPreview();true}
-            media.prepareAsync()
-        }catch(_:Exception){stopPreview();state.text="Müzik açılamadı."}
+        val uri=sound?:run { state.text="Önce müzik seç.";return }
+        listenFrom(IntroSelection.clamp(startAt,soundLength),uri)
     }
+
+    private fun listenFrom(start:Long, selected:Uri?=sound) {
+        val uri=selected?:run { state.text="Önce müzik seç.";return }
+        stopPreview()
+        val id=++token
+        try {
+            val media=MediaPlayer()
+            player=media
+            media.setDataSource(host,uri)
+            media.setOnSeekCompleteListener {
+                if(player===it&&id==token) {
+                    it.start()
+                    listen.text="■ Önizlemeyi durdur"
+                    handler.postDelayed({ if(id==token)stopPreview() },8000)
+                }
+            }
+            media.setOnPreparedListener {
+                // Wait for exact seek completion before playing, not from song zero.
+                val actual=IntroSelection.clamp(start,soundLength)
+                if(actual==0L) {
+                    it.start()
+                    listen.text="■ Önizlemeyi durdur"
+                    handler.postDelayed({ if(id==token)stopPreview() },8000)
+                } else {
+                    it.seekTo(actual,MediaPlayer.SEEK_CLOSEST)
+                }
+            }
+            media.setOnErrorListener { _,_,_->stopPreview();state.text="Ses açılamadı.";true }
+            media.prepareAsync()
+        } catch(_:Exception) { stopPreview();state.text="Ses açılamadı." }
+    }
+
     private fun stopPreview() {
         token++
-        try{player?.release()}catch(_:Exception){}
-        player=null;listen.text="▶ Başlangıcı dinle"
+        try { player?.release() } catch(_:Exception) {}
+        player=null
+        listen.text="▶ Seçilen başlangıcı dinle"
     }
+
     private fun generate() {
         val img=image?:run{state.text="Önce fotoğraf seç.";return}
         val mp3=sound?:run{state.text="Önce müzik seç.";return}
