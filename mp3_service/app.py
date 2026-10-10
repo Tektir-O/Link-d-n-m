@@ -17,6 +17,9 @@ VIDEO_ID = re.compile(r"^[a-zA-Z0-9_-]{11}$")
 MAX_MP3_BYTES = 100 * 1024 * 1024
 MAX_REQUEST_BYTES = 2048
 CONVERT_TIMEOUT_SECONDS = 300
+MAX_DURATION_SECONDS = 5400
+QUALITIES = {128, 192, 320}
+DEFAULT_QUALITY = 192
 SLOTS = threading.BoundedSemaphore(2)
 
 # Strict caps for public, no-login mobile conversions. Limits are per running instance;
@@ -82,13 +85,16 @@ def canonical_youtube_url(raw: str) -> tuple[str, str]:
     return f"https://www.youtube.com/watch?v={video_id}", video_id
 
 
-def convert(url: str, video_id: str, folder: Path) -> Path:
+def convert(url: str, video_id: str, folder: Path, quality: int = DEFAULT_QUALITY) -> Path:
+    if type(quality) is not int or quality not in QUALITIES:
+        raise ValueError("Desteklenmeyen MP3 kalitesi.")
     subprocess.run(
         [
             "yt-dlp", "--no-playlist", "--no-progress", "--no-warnings",
             "--no-mtime", "--no-cache-dir", "--restrict-filenames",
             "--max-filesize", "80M", "--socket-timeout", "20", "--retries", "2",
-            "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0",
+            "--match-filter", f"duration <= {MAX_DURATION_SECONDS}",
+            "--extract-audio", "--audio-format", "mp3", "--audio-quality", f"{quality}K",
             "-o", str(folder / "%(id)s.%(ext)s"), "--", url,
         ],
         cwd=str(folder), check=True, timeout=CONVERT_TIMEOUT_SECONDS,
@@ -148,6 +154,9 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(request, dict):
                 raise ValueError("JSON nesnesi gerekli.")
             url, video_id = canonical_youtube_url(request.get("url"))
+            quality = request.get("quality", DEFAULT_QUALITY)
+            if type(quality) is not int or quality not in QUALITIES:
+                return self.respond_json(400, "Kalite 128, 192 veya 320 kbps olmalı.")
         except (ValueError, UnicodeError) as exc:
             return self.respond_json(400, str(exc))
         if not SLOTS.acquire(blocking=False):
@@ -157,7 +166,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond_json(429, "Saatlik dönüştürme sınırı doldu. Daha sonra tekrar deneyin.")
             with tempfile.TemporaryDirectory(prefix="link-mp3-") as directory:
                 try:
-                    mp3 = convert(url, video_id, Path(directory))
+                    mp3 = convert(url, video_id, Path(directory), quality=quality)
                 except subprocess.TimeoutExpired:
                     return self.respond_json(504, "Dönüştürme zaman aşımına uğradı.")
                 except subprocess.CalledProcessError as exc:
@@ -168,13 +177,15 @@ class Handler(BaseHTTPRequestHandler):
                     if "ffmpeg" in output and ("not found" in output or "not installed" in output):
                         print("Conversion failed: ffmpeg missing", flush=True)
                         return self.respond_json(503, "Sunucuda FFmpeg kurulu değil.")
+                    if "does not pass filter" in output or "match-filter" in output:
+                        return self.respond_json(422, "Video 90 dakikalık sınırı aşıyor.")
                     if "unavailable" in output or "private video" in output:
                         print("Conversion failed: video unavailable", flush=True)
                         return self.respond_json(422, "Video indirilemedi: özel, kaldırılmış veya erişime kapalı olabilir.")
                     if "unable to extract" in output or "signature" in output:
                         print("Conversion failed: extraction/signature issue", flush=True)
                         return self.respond_json(502, "YouTube video biçimi ayrıştırılamadı. Sunucu güncellemesi gerekiyor.")
-                    print(f"Conversion failed: yt-dlp exit code {exc.returncode}; output_tail={output[-320:]!r}", flush=True)
+                    print(f"Conversion failed: yt-dlp exit code {exc.returncode}", flush=True)
                     return self.respond_json(502, "Video alınamadı veya MP3 oluşturulamadı.")
                 except FileNotFoundError as exc:
                     tool = str(exc.filename or "unknown")
