@@ -115,11 +115,14 @@ class AudioCutActivity : Activity() {
         Thread {
             val decoded = decodeAmplitudes()
             runOnUiThread {
-                if (alive && decoded != null) {
+                if (!alive) return@runOnUiThread
+                if (decoded != null) {
                     decoded.copyInto(amplitudes)
                     waveformReady = true
-                    waveform.invalidate()
+                } else {
+                    status.text = status.text.toString() + "\nSes dalgası okunamadı."
                 }
+                waveform.invalidate()
             }
         }.start()
     }
@@ -144,7 +147,14 @@ class AudioCutActivity : Activity() {
             val left=x(startMs);val right=x(endMs)
             paint.color=Color.rgb(35,79,61)
             canvas.drawRoundRect(RectF(left,9f,right,height-9f),9f,9f,paint)
+            if (!waveformReady) {
+                paint.color=paleText;paint.textSize=16f*resources.displayMetrics.scaledDensity
+                paint.textAlign=Paint.Align.CENTER
+                canvas.drawText("Ses dalgası hazırlanıyor...",width/2f,center+5f,paint)
+                paint.textAlign=Paint.Align.LEFT
+            }
             for(i in amplitudes.indices) {
+                if (!waveformReady) break
                 val xx=16f + usable*(i+.5f)/amplitudes.size
                 val magnitude=if(waveformReady)amplitudes[i] else .08f
                 val h=5f + magnitude.coerceIn(0f,1f)*height*.29f
