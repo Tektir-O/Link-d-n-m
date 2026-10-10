@@ -236,8 +236,21 @@ class HttpTests(unittest.TestCase):
         self.assertEqual(status, 413)
         status, _, _ = self.post_media(media_type="text/html")
         self.assertEqual(status, 415)
-        status, _, _ = self.post_media(data=b"0" * (60 * 1024 * 1024 + 1))
-        self.assertEqual(status, 413)
+        # Advertise an oversized body without sending 60 MB: the server must
+        # reject at the header boundary, before buffering user media.
+        import http.client
+        client = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        try:
+            client.putrequest("POST", "/convert-file")
+            client.putheader("Authorization", "Bearer test-only-very-long-api-key")
+            client.putheader("Content-Type", "video/mp4")
+            client.putheader("Content-Length", str(60 * 1024 * 1024 + 1))
+            client.endheaders()
+            response = client.getresponse()
+            self.assertEqual(response.status, 413)
+            response.read()
+        finally:
+            client.close()
         import subprocess
         failed = subprocess.CalledProcessError(1, ["ffmpeg"])
         with patch("app.encode_local_media", side_effect=failed):
