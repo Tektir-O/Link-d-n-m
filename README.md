@@ -34,3 +34,13 @@ GitHub **Actions → Android MP3 APK** iş akışının başarılı çıktısın
 Android uygulamasında API anahtarı ve sunucu adresi alanları kaldırılmıştır. Resmî HTTPS servis adresi kodda sabittir: `https://link-mp3-api-production.up.railway.app`. Bu adres **gizli bilgi değildir**. Gizli API anahtarları herkese açık kaynak koduna veya APK içine yerleştirilmez. Test sunucusunda kullanıcıdan anahtar istemeyen mod, saatlik genel ve IP başına istek sınırlamasıyla korunur (tek sunucu kopyasında en fazla 12/saat, istemci başına 3/saat). Bu kota kötüye kullanım riskini sıfırlamaz.
 
 Bağlantıyı yapıştırıp **MP3'e Dönüştür ve İndir** düğmesine basabilirsiniz. Canlı YouTube dönüştürme işlemi platform kısıtlamaları ve sunucu durumuna bağlıdır. Sunucuda herhangi bir kesinti veya sınır varsa hata gösterilir. Bu otomatik sunucu gerçek bir arka uçtur, anahtar APK'ya gömülmemiştir.
+
+## v2.0 PRO geliştirme
+- MP3 kalite seçimi 128/192/320 kbps, dönüştürme ve indirme durumları, indirmeyi iptal etme.
+- MP3 arşivi: çalma/duraklatma, ileri sarma, paylaşma ve silme.
+- Android 10+ İndirilenler/LinkMP3; Android 8-9 uygulama özel müzik dizini.
+- YouTube bağlantısını diğer uygulamalardan paylaşma; kayıt sırasında yarım MP3'leri temizleme.
+- Otomatik birim, HTTP ve debug APK testleri.
+- Çalışan v1 yedeği: `backup/v1-working-20261010`.
+
+**Sınırlar:** Debug APK imzası GitHub Actions iş akışlarında kalıcı olmayabilir. Üzerine kurularak güncellenen final sürümler için sabit ve güvenli imza anahtarı gerekir. Bu projede APK içerisine gizli API anahtarı konmaz. YouTube'un erişim engelleri veya bot kontrolleri dönüşümü engelleyebilir.

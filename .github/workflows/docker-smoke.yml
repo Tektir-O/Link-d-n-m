@@ -1,0 +1,34 @@
+name: Link MP3 | Docker Sunucu Testi
+
+on:
+  pull_request:
+  push:
+    branches: [main, "feature/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production container
+        run: docker build --pull -t link-mp3:ci ./mp3_service
+      - name: Test Docker tools and HTTP health
+        run: |
+          set -eu
+          docker run -d --name link-mp3-smoke -e LINK_MP3_PUBLIC_MODE=1 -p 127.0.0.1:18080:8080 link-mp3:ci
+          trap 'docker logs link-mp3-smoke; docker rm -f link-mp3-smoke' EXIT
+          docker exec link-mp3-smoke yt-dlp --version
+          docker exec link-mp3-smoke ffmpeg -version
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:18080/health; then
+              echo "Docker HTTP health is OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1

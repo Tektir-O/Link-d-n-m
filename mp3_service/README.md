@@ -30,3 +30,10 @@ Testler canlı YouTube'a bağlanmaz. Bağlantı doğrulama, API anahtarı, yanl�
 Resmî sunucu `https://link-mp3-api-production.up.railway.app` adresindedir. Mobil istemci bu alan adını otomatik kullanır; sunucu bilgisi ve gizli API anahtarı istemez. Sunucuda `LINK_MP3_PUBLIC_MODE=1` ortam değişkeni etkinleştirilirse anonim istekler kabul edilir ve IP başına **3/saat**, tüm sunucu genelinde **12/saat** kota uygulanır. Kota Python işlem belleğinde tutulur; yeniden başlatmada sıfırlanır ve çoklu örnekler arasında paylaşılmaz. Daha yoğun/hassas kullanımda merkezi hız sınırı, erişim kontrolü ve abuse tespiti eklenmelidir.
 
 Sunucuyu **özel modda** çalıştırmak için `LINK_MP3_PUBLIC_MODE` değişkenini kaldırıp uzun bir `LINK_MP3_API_KEY` sunucu ortam değişkeni atayın. Gizli değerleri APK veya GitHub'a yüklemeyin. Android'in bu sürümü yalnızca anonim modla çalışır.
+
+## v2.0
+`POST /convert`: `{"url":"https://youtu.be/VIDEO_ID","quality":192}`. Desteklenen kaliteler: **128, 192, 320 kbps**. Varsayılan 192. Kaynak ses kalitesini yükseltmez.
+Maksimum süre 90 dakika, MP3 dosyası en çok 100 MB, kaynak dosya sınırlaması 80 MB.
+
+Docker derleme: `docker build -t linkmp3-v2 ./mp3_service`.
+Docker konteynerindeki yt-dlp/FFmpeg kurulum süresi dağıtım aşamasındadır; Railway'in mevcut üretim servisi henüz bu Docker imajına geçirilmiş değildir. Canlı dağıtım ve cihaz üzerinde test ayrıca yapılmalıdır.
