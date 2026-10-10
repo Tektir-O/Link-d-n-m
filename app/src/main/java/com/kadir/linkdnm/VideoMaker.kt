@@ -38,8 +38,10 @@ class VideoMaker(private val context: Context) {
 
     private fun normalizePhoto(uri: Uri): File {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val input = context.contentResolver.openInputStream(uri)
             ?: throw IOException("Fotoğraf açılamadı.")
+        // inJustDecodeBounds intentionally returns null; image dimensions are in bounds.
+        input.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth < 1 || bounds.outHeight < 1) throw IOException("Fotoğraf bozuk.")
         val ratio = maxOf(1, maxOf(bounds.outWidth / 1600, bounds.outHeight / 1600))
         val original = context.contentResolver.openInputStream(uri)?.use {
