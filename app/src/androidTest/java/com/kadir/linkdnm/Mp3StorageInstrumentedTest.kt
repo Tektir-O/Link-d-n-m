@@ -35,4 +35,30 @@ class Mp3StorageInstrumentedTest {
         }
         assertFalse("Deleted MP3 must disappear", storage.list().any { it.uri == saved.uri })
     }
+
+    @Test
+    fun videoToMp3AppearsInSameScreenLibrary() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val storage = Mp3Storage(context)
+        val bytes = "ID3-local-video-fallback-data".toByteArray()
+        val name = "video-yerelmedya0-192k-" + System.currentTimeMillis() + ".mp3"
+        val saved = storage.save(
+            ByteArrayInputStream(bytes), bytes.size.toLong(), name,
+            { false }, { _, _ -> }
+        )
+        try {
+            assertTrue(
+                "MP3 converted from phone media must be visible",
+                storage.list().any { it.name == name && it.uri == saved.uri }
+            )
+            val actual = context.contentResolver.openInputStream(saved.uri)
+                ?.use { it.readBytes() } ?: byteArrayOf()
+            assertArrayEquals(bytes, actual)
+        } finally {
+            assertTrue(storage.delete(saved))
+        }
+        assertFalse(storage.list().any { it.uri == saved.uri })
+    }
+
 }
+
