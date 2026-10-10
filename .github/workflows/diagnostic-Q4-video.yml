@@ -1,0 +1,53 @@
+name: Tek YouTube Baglantisi Tani Testi
+
+on:
+  push:
+    branches: ["diagnostics/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-youtube-access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check public YouTube metadata (no download)
+        run: |
+          set -u
+          url='https://www.youtube.com/oembed?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DQ4YMCVWa5gA&format=json'
+          status=$(curl -sS -L -o /tmp/metadata.json -w '%{http_code}' --max-time 20 "$url") || status="network_error"
+          echo "Public YouTube metadata HTTP: $status"
+          if [ "$status" = "200" ]; then
+            python3 -c 'import json; d=json.load(open("/tmp/metadata.json")); print("Video title:",d.get("title","?")); print("Channel:",d.get("author_name","?"))'
+          else
+            head -c 350 /tmp/metadata.json 2>/dev/null || true
+            echo
+          fi
+      - name: Test the exact provided video against the actual MP3 server once
+        run: |
+          set -u
+          base='https://link-mp3-api-production.up.railway.app'
+          health=$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 15 "$base/health") || health="network_error"
+          echo "Railway /health HTTP: $health"
+          if [ "$health" != "200" ]; then
+            echo "No attempt: Railway health failed"; exit 0
+          fi
+          status=$(curl -sS -o /tmp/mp3-response.bin -w '%{http_code}' --max-time 150 \
+            -H 'Content-Type: application/json' \
+            --data '{"url":"https://youtu.be/Q4YMCVWa5gA?si=kQ1WBqKj3CPR5MyH","quality":192}' \
+            "$base/convert") || status="network_error"
+          echo "EXACT VIDEO CONVERT HTTP: $status"
+          if [ "$status" = "200" ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/mp3-response.bin')
+          h=p.read_bytes()[:3]
+          print('Returned MP3 bytes:',p.stat().st_size,'has_mp3_header:',h==b'ID3' or h[:1]==b'\\xff')
+          PY
+          else
+            head -c 1000 /tmp/mp3-response.bin 2>/dev/null || true
+            echo
+          fi
+          rm -f /tmp/mp3-response.bin
