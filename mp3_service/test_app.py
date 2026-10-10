@@ -9,7 +9,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from app import Handler, canonical_youtube_url, convert
+from app import Handler, canonical_youtube_url, convert, allow_public_request, CLIENT_REQUESTS, PUBLIC_REQUESTS
 
 
 class UrlTests(unittest.TestCase):
@@ -91,6 +91,37 @@ class HttpTests(unittest.TestCase):
     def test_rejected_non_youtube_url(self):
         code, _, _ = self.post("/convert", payload={"url": "https://example.com/"})
         self.assertEqual(code, 400)
+
+    def test_public_mode_without_embedded_api_key(self):
+        before_key, before_mode = Handler.api_key, Handler.public_mode
+        try:
+            Handler.api_key = ""
+            Handler.public_mode = True
+
+            def fake_converter(url, video_id, folder):
+                output = folder / (video_id + ".mp3")
+                output.write_bytes(b"ID3-test-public-audio")
+                return output
+
+            with patch("app.convert", side_effect=fake_converter):
+                code, body, _ = self.post("/convert", key="not-a-secret")
+            self.assertEqual(code, 200)
+            self.assertEqual(body, b"ID3-test-public-audio")
+        finally:
+            Handler.api_key, Handler.public_mode = before_key, before_mode
+
+    def test_public_rate_limiting(self):
+        with patch("app.MAX_PUBLIC_REQUESTS_PER_HOUR", 12), patch("app.MAX_CLIENT_REQUESTS_PER_HOUR", 3):
+            PUBLIC_REQUESTS.clear()
+            CLIENT_REQUESTS.clear()
+            self.assertTrue(allow_public_request("192.0.2.10", now=1000))
+            self.assertTrue(allow_public_request("192.0.2.10", now=1000))
+            self.assertTrue(allow_public_request("192.0.2.10", now=1000))
+            self.assertFalse(allow_public_request("192.0.2.10", now=1000))
+            self.assertTrue(allow_public_request("192.0.2.11", now=1000))
+            self.assertTrue(allow_public_request("192.0.2.10", now=5000))
+            PUBLIC_REQUESTS.clear()
+            CLIENT_REQUESTS.clear()
 
     def test_mp3_response(self):
         def fake_converter(url, video_id, folder):
