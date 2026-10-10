@@ -65,7 +65,8 @@ class VideoExportInstrumentedTest {
         val maker = VideoMaker(context)
         instrumentation.runOnMainSync {
             maker.export(
-                Uri.fromFile(photo), Uri.fromFile(sound), 1, 0, 2000,
+                // Verify a user-selected nonzero beginning is actually exported.
+                Uri.fromFile(photo), Uri.fromFile(sound), 1, 500, 2000,
                 onSaved = { uri -> result.set(uri); finished.countDown() },
                 onError = { e -> failure.set(e); finished.countDown() },
                 testDurationMs = 3000
