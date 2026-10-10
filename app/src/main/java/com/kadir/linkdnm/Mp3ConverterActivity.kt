@@ -13,6 +13,10 @@ import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Environment
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -36,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class Mp3ConverterActivity : Activity() {
     private companion object {
         const val ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert"
+        const val CAPTCHA_CONFIG = "https://link-mp3-api-production.up.railway.app/captcha-config"
+        const val CAPTCHA_PAGE = "https://link-mp3-api-production.up.railway.app/captcha"
         val BACKGROUND = Color.rgb(243, 248, 246)
         val GREEN = Color.rgb(11, 108, 83)
         val INK = Color.rgb(25, 57, 47)
@@ -52,6 +58,11 @@ class Mp3ConverterActivity : Activity() {
     private lateinit var playerStatus: TextView
     private lateinit var storage: Mp3Storage
     private lateinit var videoPanel: VideoPanel
+    private lateinit var captchaBox: LinearLayout
+    private lateinit var captchaStatus: TextView
+    private var captchaWeb: WebView? = null
+    @Volatile private var captchaRequired = false
+    @Volatile private var captchaToken: String? = null
 
     private val busy = AtomicBoolean(false)
     @Volatile private var cancelled = false
@@ -135,6 +146,10 @@ class Mp3ConverterActivity : Activity() {
             }
         }, 13)
         add(form, label("2. Müziği indir", 20f, INK, true), 9)
+        captchaBox = column(4).apply { visibility = View.GONE }
+        captchaStatus = label("Ben robot değilim doğrulaması yükleniyor...", 16f, GRAY)
+        add(captchaBox, captchaStatus, 4)
+        add(form, captchaBox, 8)
         startButton = button("2  ·  MP3 İNDİR", primary = true, height = 68).apply {
             textSize = 21f
             setOnClickListener { download() }
@@ -182,6 +197,7 @@ class Mp3ConverterActivity : Activity() {
         })
         readSharedLink(intent)
         refreshMusic()
+        loadCaptchaConfig()
     }
 
     override fun onResume() {
@@ -216,6 +232,65 @@ class Mp3ConverterActivity : Activity() {
         runOnUiThread { if (!isDestroyed && !isFinishing) block() }
     }
 
+
+    /** Cloudflare Turnstile runs in a WebView. Its token is checked by the server. */
+    private fun loadCaptchaConfig() {
+        Thread {
+            try {
+                val http = (URL(CAPTCHA_CONFIG).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    instanceFollowRedirects = false
+                }
+                val needed = try {
+                    if (http.responseCode != 200) return@Thread
+                    JSONObject(http.inputStream.bufferedReader().use { it.readText().take(512) })
+                        .optBoolean("required", false)
+                } finally { http.disconnect() }
+                captchaRequired = needed
+                if (needed) render { showCaptcha() }
+            } catch (_: Exception) {
+                // If credentials are enabled on the server but this config is blocked,
+                // /convert will still enforce the challenge. Never bypass server verification.
+            }
+        }.start()
+    }
+
+    private fun showCaptcha() {
+        if (captchaWeb != null || isDestroyed) return
+        captchaBox.visibility = View.VISIBLE
+        captchaStatus.text = "Ben robot değilim doğrulamasını tamamla."
+        val web = WebView(this)
+        captchaWeb = web
+        web.settings.javaScriptEnabled = true
+        web.settings.domStorageEnabled = true
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        web.webViewClient = WebViewClient()
+        web.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun onVerified(token: String) {
+                if (token.length !in 3..2048) return
+                captchaToken = token
+                render { captchaStatus.text = "✓ Ben robot değilim doğrulaması tamamlandı." }
+            }
+            @JavascriptInterface
+            fun onExpired() {
+                captchaToken = null
+                render { captchaStatus.text = "Doğrulama süresi doldu. Tekrar onayla." }
+            }
+        }, "AndroidCaptcha")
+        captchaBox.addView(web, LinearLayout.LayoutParams(-1, dp(140)))
+        web.loadUrl(CAPTCHA_PAGE)
+    }
+
+    private fun resetCaptcha() {
+        if (!captchaRequired) return
+        captchaToken = null
+        captchaStatus.text = "Tekrar indirmek için doğrulamayı yenile."
+        captchaWeb?.loadUrl(CAPTCHA_PAGE)
+    }
+
     private fun download() {
         if (!busy.compareAndSet(false, true)) return
         val url = try {
@@ -223,6 +298,10 @@ class Mp3ConverterActivity : Activity() {
         } catch (e: IllegalArgumentException) {
             busy.set(false)
             status.text = "Bağlantı geçersiz. YouTube bağlantısı yapıştır."
+            return
+        }
+        if (captchaRequired && captchaToken.isNullOrBlank()) {
+            status.text = "Önce Ben robot değilim doğrulamasını tamamla."
             return
         }
         cancelled = false
@@ -247,6 +326,7 @@ class Mp3ConverterActivity : Activity() {
                 val payload = JSONObject()
                     .put("url", url)
                     .put("quality", Mp3Options.DEFAULT_BITRATE)
+                    .apply { if (captchaRequired) put("captcha_token", captchaToken ?: "") }
                     .toString().toByteArray(Charsets.UTF_8)
                 connection.outputStream.use { it.write(payload) }
                 if (cancelled) throw IOException("İptal")
@@ -300,6 +380,7 @@ class Mp3ConverterActivity : Activity() {
                     startButton.isEnabled = true
                     cancelButton.visibility = View.GONE
                     progressBar.visibility = View.GONE
+                    resetCaptcha()
                 }
             }
         }.start()
@@ -442,6 +523,9 @@ class Mp3ConverterActivity : Activity() {
         request?.disconnect()
         stopPlayer()
         if (::videoPanel.isInitialized) videoPanel.release()
+        captchaWeb?.removeJavascriptInterface("AndroidCaptcha")
+        captchaWeb?.destroy()
+        captchaWeb = null
         super.onDestroy()
     }
 }
