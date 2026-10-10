@@ -165,7 +165,7 @@ class Mp3ConverterActivity : Activity() {
         setContentView(ScrollView(this).apply {
             setBackgroundColor(BG)
             addView(root)
-            fillViewport = true
+            isFillViewport = true
         })
         readShared(intent)
     }
