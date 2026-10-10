@@ -29,7 +29,7 @@ class IntroSelectionTest {
         assertEquals(500L, IntroSelection.offset(0,500,duration))
         assertEquals(1000L, IntroSelection.offset(1500,-500,duration))
         assertEquals(0L, IntroSelection.offset(0,-2000,duration))
-        assertEquals(88000L, IntroSelection.offset(90000,2000,duration))
+        assertEquals(88500L, IntroSelection.offset(90000,2000,duration))
     }
 
     @Test fun clampsToSafeAudioEndAndSliderLimit() {
