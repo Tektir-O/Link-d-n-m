@@ -119,6 +119,7 @@ class VideoMaker(private val context: Context) {
                     }
                     override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
                         if (serial != job) return
+                        android.util.Log.e("VideoMaker", "MP4 export failed", exportException)
                         cleanup()
                         onError("Video oluşturulamadı. Fotoğraf veya ses biçimi desteklenmiyor olabilir.")
                     }
