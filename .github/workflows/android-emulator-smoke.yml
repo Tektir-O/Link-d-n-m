@@ -43,7 +43,7 @@ jobs:
             gradle --no-daemon :app:connectedDebugAndroidTest
             # Gradle connected tests can uninstall the tested application at teardown.
             adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -n com.kadir.muzikindir.video25/com.kadir.linkdnm.Mp3ConverterActivity
+            adb shell am start -n com.kadir.muzikindir.video26/com.kadir.linkdnm.Mp3ConverterActivity
             sleep 2
-            adb shell pidof com.kadir.muzikindir.video25
+            adb shell pidof com.kadir.muzikindir.video26
             adb logcat -d -t 500 | grep -F 'FATAL EXCEPTION' && exit 1 || true
