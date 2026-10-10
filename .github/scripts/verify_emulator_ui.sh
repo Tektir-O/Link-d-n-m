@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-PACKAGE="com.kadir.muzikindir.video25"
+PACKAGE="com.kadir.muzikindir.video26"
 ACTIVITY="com.kadir.linkdnm.Mp3ConverterActivity"
 ui_ok=0
 
