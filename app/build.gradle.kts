@@ -8,7 +8,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kadir.linkmp3.pro"
+        applicationId = "com.kadir.muzikindir.kolay"
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

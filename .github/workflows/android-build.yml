@@ -39,7 +39,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | tee permissions.txt
           grep -F 'android.permission.INTERNET' permissions.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee badging.txt
-          grep -F "package: name='com.kadir.linkmp3.pro'" badging.txt
+          grep -F "package: name='com.kadir.muzikindir.kolay'" badging.txt
           grep -q 'android:usesCleartextTraffic="false"' app/src/main/AndroidManifest.xml
           unzip -tq "$APK"
       - name: Test APK dosyası
