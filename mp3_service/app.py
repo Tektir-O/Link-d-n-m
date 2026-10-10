@@ -16,6 +16,14 @@ from urllib.parse import parse_qs, urlsplit
 VIDEO_ID = re.compile(r"^[a-zA-Z0-9_-]{11}$")
 MAX_MP3_BYTES = 100 * 1024 * 1024
 MAX_REQUEST_BYTES = 2048
+MAX_UPLOAD_BYTES = 60 * 1024 * 1024
+UPLOAD_MIME = {
+    "video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
+    "video/x-matroska": ".mkv", "video/3gpp": ".3gp", "audio/mp4": ".m4a",
+    "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/x-wav": ".wav",
+    "audio/webm": ".webm", "audio/ogg": ".ogg", "application/ogg": ".ogg",
+}
+
 CONVERT_TIMEOUT_SECONDS = 300
 MAX_DURATION_SECONDS = 5400
 QUALITIES = {128, 192, 320}
@@ -123,6 +131,22 @@ def convert(url: str, video_id: str, folder: Path, quality: int = DEFAULT_QUALIT
     return result
 
 
+
+def encode_local_media(input_path: Path, output_path: Path):
+    """Convert an explicitly uploaded local video/audio file to MP3; no YouTube required."""
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+         "-protocol_whitelist", "file", "-i", str(input_path),
+         "-map", "0:a:0", "-vn", "-t", str(MAX_DURATION_SECONDS),
+         "-codec:a", "libmp3lame", "-b:a", "192k", "-ac", "2",
+         "-ar", "44100", str(output_path)],
+        check=True, timeout=180, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True,
+    )
+    if not output_path.is_file() or not 0 < output_path.stat().st_size <= MAX_MP3_BYTES:
+        raise RuntimeError("MP3 çıktısı oluşturulamadı.")
+
+
 class Handler(BaseHTTPRequestHandler):
     api_key = ""
     public_mode = False
@@ -152,14 +176,79 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
+    def post_file(self, authenticated: bool):
+        """Process a bounded media upload. Never fetch arbitrary URLs."""
+        media_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+        extension = UPLOAD_MIME.get(media_type)
+        if not extension:
+            return self.respond_json(415, "Yalnızca video veya ses dosyası seç.", "UNSUPPORTED_MEDIA")
+        if self.headers.get("Transfer-Encoding"):
+            return self.respond_json(400, "Sabit dosya boyutu gerekli.")
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return self.respond_json(400, "Geçersiz dosya boyutu.")
+        if not 1 <= length <= MAX_UPLOAD_BYTES:
+            return self.respond_json(413, "Dosya 60 MB sınırını aşıyor.", "FILE_TOO_LARGE")
+        if not SLOTS.acquire(blocking=False):
+            return self.respond_json(429, "Sunucu meşgul. Biraz sonra tekrar dene.")
+        try:
+            if not authenticated and not allow_public_request(self.client_address[0]):
+                return self.respond_json(429, "Saatlik dönüştürme sınırına ulaşıldı.")
+            with tempfile.TemporaryDirectory(prefix="link-mp3-upload-") as directory:
+                folder = Path(directory)
+                input_file = folder / ("media" + extension)
+                remaining = length
+                self.connection.settimeout(45)
+                try:
+                    with input_file.open("wb") as dest:
+                        while remaining > 0:
+                            chunk = self.rfile.read(min(64 * 1024, remaining))
+                            if not chunk:
+                                return self.respond_json(400, "Dosya eksik gönderildi.")
+                            dest.write(chunk)
+                            remaining -= len(chunk)
+                except (OSError, TimeoutError):
+                    return self.respond_json(400, "Dosya yüklemesi tamamlanamadı.")
+                output = folder / "converted.mp3"
+                try:
+                    encode_local_media(input_file, output)
+                except subprocess.TimeoutExpired:
+                    return self.respond_json(504, "Dosya dönüştürme zaman aşımına uğradı.")
+                except (subprocess.CalledProcessError, RuntimeError):
+                    return self.respond_json(422, "Bu dosyada dönüştürülebilir ses bulunamadı.")
+                except FileNotFoundError:
+                    return self.respond_json(503, "FFmpeg sunucuda bulunamadı.")
+                self.send_mp3(output, "video-yerelmedya0.mp3")
+        finally:
+            SLOTS.release()
+
+    def send_mp3(self, mp3: Path, file_name: str):
+        size = mp3.stat().st_size
+        self.send_response(200)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Content-Disposition", f'attachment; filename="{file_name}"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            with mp3.open("rb") as source:
+                while chunk := source.read(64 * 1024):
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def do_POST(self):
-        if self.path != "/convert":
+        if self.path not in {"/convert", "/convert-file"}:
             return self.respond_json(404, "Sayfa bulunamadı.")
         authenticated = bool(self.api_key) and hmac.compare_digest(
             self.headers.get("Authorization", ""), "Bearer " + self.api_key
         )
         if not authenticated and not self.public_mode:
             return self.respond_json(401, "Yetkilendirme başarısız.")
+        if self.path == "/convert-file":
+            return self.post_file(authenticated)
         if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
             return self.respond_json(415, "JSON gerekli.")
         try:
@@ -226,19 +315,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.respond_json(502, "Video alınamadı veya MP3 oluşturulamadı.")
                 except ValueError as exc:
                     return self.respond_json(413, str(exc))
-                size = mp3.stat().st_size
-                self.send_response(200)
-                self.send_header("Content-Type", "audio/mpeg")
-                self.send_header("Content-Length", str(size))
-                self.send_header("Content-Disposition", f'attachment; filename="youtube-{video_id}.mp3"')
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                try:
-                    with mp3.open("rb") as source:
-                        while chunk := source.read(64 * 1024):
-                            self.wfile.write(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
+                self.send_mp3(mp3, f"youtube-{video_id}.mp3")
         finally:
             SLOTS.release()
 
