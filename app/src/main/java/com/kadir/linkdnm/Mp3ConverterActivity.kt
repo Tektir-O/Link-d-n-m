@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** One-screen, big-button player designed for people unfamiliar with apps.
  * No second screen, settings, API key, login or codec jargon in the UI. */
+@androidx.media3.common.util.UnstableApi
 class Mp3ConverterActivity : Activity() {
     private companion object {
         const val ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert"
@@ -50,6 +51,7 @@ class Mp3ConverterActivity : Activity() {
     private lateinit var musicList: LinearLayout
     private lateinit var playerStatus: TextView
     private lateinit var storage: Mp3Storage
+    private lateinit var videoPanel: VideoPanel
 
     private val busy = AtomicBoolean(false)
     @Volatile private var cancelled = false
@@ -167,6 +169,9 @@ class Mp3ConverterActivity : Activity() {
         add(songs, musicList, 0)
         add(root, songs, 12)
 
+        videoPanel = VideoPanel(this, storage)
+        add(root, videoPanel.createView(), 14)
+
         add(root, label("Müzikler telefonda İndirilenler / LinkMP3 klasörüne kaydedilir.",
             14f, GRAY), 0)
 
@@ -182,6 +187,7 @@ class Mp3ConverterActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (::musicList.isInitialized) refreshMusic()
+        if (::videoPanel.isInitialized) videoPanel.refreshMusic()
     }
 
     private fun readSharedLink(intent: Intent?) {
@@ -198,6 +204,12 @@ class Mp3ConverterActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         readSharedLink(intent)
+    }
+
+    @Deprecated("Android picker result")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (::videoPanel.isInitialized) videoPanel.result(requestCode, resultCode, data)
     }
 
     private fun render(block: () -> Unit) {
@@ -272,6 +284,7 @@ class Mp3ConverterActivity : Activity() {
                 render {
                     status.text = "✓ Müzik indirildi! Aşağıdan Dinle'ye bas."
                     refreshMusic()
+                    videoPanel.refreshMusic(result)
                     Toast.makeText(this, "Müzik hazır!", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
@@ -428,6 +441,7 @@ class Mp3ConverterActivity : Activity() {
         cancelled = true
         request?.disconnect()
         stopPlayer()
+        if (::videoPanel.isInitialized) videoPanel.release()
         super.onDestroy()
     }
 }
