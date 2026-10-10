@@ -197,6 +197,84 @@ class HttpTests(unittest.TestCase):
         self.assertNotIn("error_code", json.loads(body))
         self.assertIsNone(headers.get("Retry-After"))
 
+
+    def post_media(self, data=b"sample-media-bytes", media_type="video/mp4"):
+        request = Request(
+            self.base + "/convert-file", method="POST", data=data,
+            headers={"Authorization": "Bearer test-only-very-long-api-key", "Content-Type": media_type},
+        )
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status, response.read(), response.headers
+        except HTTPError as exc:
+            return exc.code, exc.read(), exc.headers
+
+    def test_uploaded_video_converts_without_youtube(self):
+        def fake_encoder(source, target):
+            self.assertEqual(source.suffix, ".mp4")
+            self.assertEqual(source.read_bytes(), b"video-bytes")
+            target.write_bytes(b"ID3-local-mp3")
+        with patch("app.encode_local_media", side_effect=fake_encoder) as encoder, \
+             patch("app.convert", side_effect=AssertionError("YouTube must not be called")):
+            status, data, headers = self.post_media(data=b"video-bytes")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, b"ID3-local-mp3")
+        self.assertEqual(headers.get_content_type(), "audio/mpeg")
+        self.assertEqual(encoder.call_count, 1)
+
+    def test_uploaded_audio_converts(self):
+        def fake_encoder(source, target):
+            self.assertEqual(source.suffix, ".wav")
+            target.write_bytes(b"ID3-wav-conversion")
+        with patch("app.encode_local_media", side_effect=fake_encoder):
+            status, data, _ = self.post_media(data=b"RIFFstuff", media_type="audio/wav")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, b"ID3-wav-conversion")
+
+    def test_upload_validation_and_non_audio(self):
+        status, _, _ = self.post_media(data=b"", media_type="video/mp4")
+        self.assertEqual(status, 413)
+        status, _, _ = self.post_media(media_type="text/html")
+        self.assertEqual(status, 415)
+        # Advertise an oversized body without sending 60 MB: the server must
+        # reject at the header boundary, before buffering user media.
+        import http.client
+        client = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        try:
+            client.putrequest("POST", "/convert-file")
+            client.putheader("Authorization", "Bearer test-only-very-long-api-key")
+            client.putheader("Content-Type", "video/mp4")
+            client.putheader("Content-Length", str(60 * 1024 * 1024 + 1))
+            client.endheaders()
+            response = client.getresponse()
+            self.assertEqual(response.status, 413)
+            response.read()
+        finally:
+            client.close()
+        import subprocess
+        failed = subprocess.CalledProcessError(1, ["ffmpeg"])
+        with patch("app.encode_local_media", side_effect=failed):
+            status, data, _ = self.post_media()
+        self.assertEqual(status, 422)
+        self.assertIn("ses", json.loads(data)["error"])
+
+    def test_ffmpeg_uses_only_local_media(self):
+        from app import encode_local_media
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "input.mp4"
+            target = Path(folder) / "output.mp3"
+            source.write_bytes(b"fake-media")
+            def fake_run(args, **kwargs):
+                self.assertIn("-protocol_whitelist", args)
+                self.assertEqual(args[args.index("-protocol_whitelist") + 1], "file")
+                self.assertIn("-map", args)
+                self.assertEqual(args[args.index("-map") + 1], "0:a:0")
+                self.assertNotIn("yt-dlp", args)
+                target.write_bytes(b"ID3-audio")
+            with patch("app.subprocess.run", side_effect=fake_run):
+                encode_local_media(source, target)
+            self.assertEqual(target.read_bytes(), b"ID3-audio")
+
     def test_mp3_response(self):
         def fake_converter(url, video_id, folder, quality=192):
             output = folder / (video_id + ".mp3")

@@ -8,12 +8,12 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.kadir.muzikindir.video"
+        applicationId = "com.kadir.muzikindir.video24"
         minSdk = 26
         targetSdk = 34
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 5
-        versionName = "2.3.0"
+        versionCode = 6
+        versionName = "2.4.0"
     }
 
     buildTypes {

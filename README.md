@@ -59,3 +59,15 @@ Bağlantıyı yapıştırıp **MP3'e Dönüştür ve İndir** düğmesine basabi
 - Eski MP3 indirme kodu korunur; video oluşturma yalnızca aynı sayfaya eklenir.
 
 Bu projeyi yalnızca indirme, kopyalama veya paylaşma hakkınızın bulunduğu içeriklerle kullanın.
+
+## v2.4: YouTube kısıtlamasında yerel medya dosyasını MP3'e dönüştür
+
+- CAPTCHA / 'Ben robot değilim' geliştirmesi kullanıcı kararıyla iptal edilmiştir. Üretimde Turnstile etkin değildir.
+- YouTube URL → MP3 işlemi korunur. YouTube'un Railway sunucu IP'sine uyguladığı bot/giriş engeli devam edebilir. Uygulamadaki CAPTCHA bunu çözmez.
+- Alternatif: TELEFONDAN VİDEO / SES → MP3. Kullanıcının 60 MB'a kadar dosyası dönüştürme için sunucuya yüklenir; FFmpeg ilk ses akışından 192 kbps MP3 oluşturur. Geçici giriş/çıkış dosyaları işlem sonunda silinir.
+- MP3, Android Downloads/LinkMP3 ve aynı ekrandaki video ses listesine eklenir.
+- Güvenlik: izin verilen medya MIME türleri, dosya boyut sınırı, saatlik istek sınırı, maksimum iki eşzamanlı dönüştürme, FFmpeg zaman aşımı, dosya protokolü sınırı ve video yerine yalnız ses seçimi. Özel dosyalar sunucuya gönderilmemeli.
+- HTTP API: POST /convert-file; başlık Content-Type video/mp4 vb., body dosya baytları, çıktı audio/mpeg. Hatalar 413 / 415 / 422.
+- Docker CI: gerçek test videosu üret, endpoint ile dönüştür, sonucu ffprobe ile MP3 ve süre doğrula.
+- Android cihaz testi: video-*.mp3 kaydet, listele, baytları oku ve sil. Ek olarak MP3 ve MP4 testleri korunur.
+- Farklı paket: com.kadir.muzikindir.video24, eski debug APK imzasıyla çakışmadan yan yana kurulur. Önceki sürümün MP3'leri Android depolama izinleri yüzünden yeni listede otomatik görünmeyebilir.

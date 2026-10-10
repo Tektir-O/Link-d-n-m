@@ -49,7 +49,7 @@ class Mp3Storage(private val context: Context) {
     fun save(input: InputStream, expected: Long, name: String,
              cancelled: () -> Boolean, update: (Long, Long) -> Unit): AudioEntry {
         require(expected in 1..MAX_BYTES) { "Geçersiz dosya boyutu." }
-        require(Regex("youtube-[A-Za-z0-9_-]{11}-(128|192|320)k-[0-9]+[.]mp3").matches(name)) {
+        require(Regex("(youtube|video)-[A-Za-z0-9_-]{11}-(128|192|320)k-[0-9]+[.]mp3").matches(name)) {
             "Güvensiz dosya adı."
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -157,15 +157,17 @@ class Mp3Storage(private val context: Context) {
             val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
             val columns = arrayOf(MediaStore.Downloads._ID, MediaStore.Downloads.DISPLAY_NAME, MediaStore.Downloads.SIZE)
             context.contentResolver.query(
-                collection, columns, MediaStore.Downloads.DISPLAY_NAME + " LIKE ?",
-                arrayOf("youtube-%.mp3"), MediaStore.Downloads.DATE_ADDED + " DESC"
+                collection, columns, "(" + MediaStore.Downloads.DISPLAY_NAME + " LIKE ? OR " +
+                    MediaStore.Downloads.DISPLAY_NAME + " LIKE ?)",
+                arrayOf("youtube-%.mp3", "video-%.mp3"), MediaStore.Downloads.DATE_ADDED + " DESC"
             )?.use { cursor ->
                 val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
                 val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
                 val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)
                 while (cursor.moveToNext() && merged.size < 80) {
                     val name = cursor.getString(nameIndex) ?: continue
-                    if (!name.startsWith("youtube-") || !name.endsWith(".mp3", true)) continue
+                    if (!(name.startsWith("youtube-") || name.startsWith("video-")) ||
+                        !name.endsWith(".mp3", true)) continue
                     val uri = ContentUris.withAppendedId(collection, cursor.getLong(idIndex))
                     merged.putIfAbsent(uri.toString(), AudioEntry(name, uri, cursor.getLong(sizeIndex)))
                 }
