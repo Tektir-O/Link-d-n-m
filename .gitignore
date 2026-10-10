@@ -1,0 +1,16 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+# Python
+__pycache__/
+*.pyc
+.venv/
+# Never commit secrets
+.env
+*.keystore
+*.jks
