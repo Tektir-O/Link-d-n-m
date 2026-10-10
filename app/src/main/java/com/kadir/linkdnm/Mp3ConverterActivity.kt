@@ -13,6 +13,9 @@ import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Environment
+import android.net.Uri
+import java.io.File
+import java.io.FileOutputStream
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -36,6 +39,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class Mp3ConverterActivity : Activity() {
     private companion object {
         const val ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert"
+        const val FILE_ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert-file"
+        const val PICK_FILE_MP3 = 5301
+        const val MAX_UPLOAD_BYTES = 60L * 1024L * 1024L
         val BACKGROUND = Color.rgb(243, 248, 246)
         val GREEN = Color.rgb(11, 108, 83)
         val INK = Color.rgb(25, 57, 47)
@@ -45,6 +51,7 @@ class Mp3ConverterActivity : Activity() {
 
     private lateinit var link: EditText
     private lateinit var startButton: Button
+    private lateinit var uploadButton: Button
     private lateinit var cancelButton: Button
     private lateinit var progressBar: ProgressBar
     private lateinit var status: TextView
@@ -140,6 +147,12 @@ class Mp3ConverterActivity : Activity() {
             setOnClickListener { download() }
         }
         add(form, startButton, 11)
+        add(form, label("YouTube erişimi kısıtlıysa:", 15f, GRAY), 6)
+        uploadButton = button("📁 TELEFONDAN VİDEO / SES → MP3", height = 60).apply {
+            textSize = 16f
+            setOnClickListener { pickFileToConvert() }
+        }
+        add(form, uploadButton, 12)
         cancelButton = button("İptal Et", height = 48).apply {
             textSize = 16f
             visibility = View.GONE
@@ -209,11 +222,148 @@ class Mp3ConverterActivity : Activity() {
     @Deprecated("Android picker result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (::videoPanel.isInitialized) videoPanel.result(requestCode, resultCode, data)
+        if (requestCode == PICK_FILE_MP3 && resultCode == RESULT_OK) {
+            data?.data?.let { convertSelectedFile(it) }
+        } else if (::videoPanel.isInitialized) videoPanel.result(requestCode, resultCode, data)
     }
 
     private fun render(block: () -> Unit) {
         runOnUiThread { if (!isDestroyed && !isFinishing) block() }
+    }
+
+
+    private fun pickFileToConvert() {
+        if (busy.get()) return
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                "video/mp4", "video/quicktime", "video/webm", "video/x-matroska", "video/3gpp",
+                "audio/mpeg", "audio/mp4", "audio/wav", "audio/x-wav", "audio/webm", "audio/ogg"
+            ))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivityForResult(pick, PICK_FILE_MP3)
+    }
+
+    private fun convertSelectedFile(source: Uri) {
+        if (!busy.compareAndSet(false, true)) return
+        val allowed = setOf(
+            "video/mp4", "video/quicktime", "video/webm", "video/x-matroska",
+            "video/3gpp", "audio/mpeg", "audio/mp4", "audio/wav", "audio/x-wav",
+            "audio/webm", "audio/ogg", "application/ogg"
+        )
+        val type = contentResolver.getType(source)?.substringBefore(";")?.lowercase(Locale.ROOT)
+        if (type == null || type !in allowed) {
+            busy.set(false)
+            status.text = "MP3'e çevirmek için desteklenen video veya ses dosyası seç."
+            return
+        }
+        cancelled = false
+        startButton.isEnabled = false
+        uploadButton.isEnabled = false
+        cancelButton.visibility = View.VISIBLE
+        progressBar.visibility = View.VISIBLE
+        progressBar.isIndeterminate = true
+        status.text = "Dosya hazırlanıyor. Biraz bekle..."
+        Thread {
+            var connection: HttpURLConnection? = null
+            val local = File(cacheDir, "upload-" + System.currentTimeMillis() + ".bin")
+            try {
+                var size = 0L
+                contentResolver.openInputStream(source)?.use { input ->
+                    FileOutputStream(local).use { dest ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            if (cancelled) throw IOException("İptal")
+                            val amount = input.read(buffer)
+                            if (amount < 0) break
+                            size += amount
+                            if (size > MAX_UPLOAD_BYTES) throw IOException("Dosya 60 MB sınırını aşıyor.")
+                            dest.write(buffer, 0, amount)
+                        }
+                    }
+                } ?: throw IOException("Telefon dosyayı açamadı.")
+                if (size == 0L) throw IOException("Seçilen dosya boş.")
+                val http = (URL(FILE_ENDPOINT).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    instanceFollowRedirects = false
+                    connectTimeout = 20_000
+                    readTimeout = 220_000
+                    doOutput = true
+                    setRequestProperty("Content-Type", type)
+                    setRequestProperty("Accept", "audio/mpeg")
+                    setFixedLengthStreamingMode(size)
+                }
+                connection = http
+                request = http
+                render {
+                    progressBar.isIndeterminate = false
+                    progressBar.progress = 0
+                    status.text = "Video/ses dosyası gönderiliyor..."
+                }
+                local.inputStream().use { input ->
+                    http.outputStream.use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var sent = 0L
+                        while (true) {
+                            if (cancelled) throw IOException("İptal")
+                            val amount = input.read(buffer)
+                            if (amount < 0) break
+                            output.write(buffer, 0, amount)
+                            sent += amount
+                            val percentage = ((sent * 100) / size).toInt()
+                            render {
+                                progressBar.progress = percentage
+                                status.text = "Dosya gönderiliyor: %" + percentage
+                            }
+                        }
+                    }
+                }
+                if (cancelled) throw IOException("İptal")
+                val responseCode = http.responseCode
+                if (responseCode != 200) {
+                    val err = http.errorStream?.bufferedReader()
+                        ?.use { it.readText().take(1200) } ?: ""
+                    val msg = try { JSONObject(err).optString("error") } catch (_: Exception) { "" }
+                    throw IOException(if (msg.isNotBlank()) msg
+                        else "Dönüştürme başarısız (HTTP $responseCode).")
+                }
+                if (http.contentType?.substringBefore(";")?.trim() != "audio/mpeg")
+                    throw IOException("Sunucu MP3 göndermedi.")
+                val outputSize = http.contentLengthLong
+                if (outputSize !in 1..Mp3Storage.MAX_BYTES)
+                    throw IOException("Gelen MP3 boyutu geçersiz.")
+                val name = "video-yerelmedya0-192k-" + System.currentTimeMillis() + ".mp3"
+                render { progressBar.isIndeterminate = true; status.text = "MP3 telefona kaydediliyor..." }
+                val entry = http.inputStream.use { stream ->
+                    storage.save(stream, outputSize, name, { cancelled }) { _, _ -> }
+                }
+                latestDownload = entry
+                render {
+                    status.text = "✓ Video/ses MP3'e dönüştürüldü!"
+                    refreshMusic()
+                    videoPanel.refreshMusic(entry)
+                    Toast.makeText(this, "MP3 hazır!", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                render {
+                    status.text = if (cancelled) "Dönüştürme iptal edildi."
+                        else "MP3 oluşturulamadı: " + (e.message ?: "Dosya okunamadı.")
+                }
+            } finally {
+                local.delete()
+                connection?.disconnect()
+                request = null
+                busy.set(false)
+                render {
+                    startButton.isEnabled = true
+                    uploadButton.isEnabled = true
+                    cancelButton.visibility = View.GONE
+                    progressBar.visibility = View.GONE
+                }
+            }
+        }.start()
     }
 
     private fun download() {
@@ -227,6 +377,7 @@ class Mp3ConverterActivity : Activity() {
         }
         cancelled = false
         startButton.isEnabled = false
+        uploadButton.isEnabled = false
         cancelButton.visibility = View.VISIBLE
         progressBar.visibility = View.VISIBLE
         progressBar.isIndeterminate = true
@@ -298,6 +449,7 @@ class Mp3ConverterActivity : Activity() {
                 busy.set(false)
                 render {
                     startButton.isEnabled = true
+                    uploadButton.isEnabled = true
                     cancelButton.visibility = View.GONE
                     progressBar.visibility = View.GONE
                 }
