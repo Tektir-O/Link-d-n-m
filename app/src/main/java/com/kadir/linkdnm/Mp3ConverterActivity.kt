@@ -100,7 +100,7 @@ class Mp3ConverterActivity : Activity() {
                 "Yalnızca indirme iznin olan içerikleri kullan.", 13f
         ))
         setContentView(ScrollView(this).apply {
-            setBackgroundColor(background)
+            setBackgroundColor(this@Mp3ConverterActivity.background)
             addView(body)
         })
     }
