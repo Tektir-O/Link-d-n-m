@@ -56,6 +56,9 @@ class Mp3ConverterActivity : Activity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var status: TextView
     private lateinit var musicList: LinearLayout
+    private lateinit var musicCard: LinearLayout
+    private lateinit var videoCard: View
+    private lateinit var videoToggle: Button
     private lateinit var playerStatus: TextView
     private lateinit var storage: Mp3Storage
     private lateinit var videoPanel: VideoPanel
@@ -103,91 +106,90 @@ class Mp3ConverterActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         storage = Mp3Storage(this)
-        val root = column(16)
+        val root = column(14)
+        val header = column(14).apply { background = rounded(INK, 22) }
+        add(header, label("♫ MÜZİK İNDİR", 26f, Color.WHITE, true), 0)
+        add(root, header, 14)
 
-        val header = column(20).apply { background = rounded(INK, 24) }
-        add(header, label("♫  MÜZİK İNDİR", 28f, Color.WHITE, true), 11)
-        add(header, label("Bağlantıyı yapıştır, indir, dinle.", 17f, Color.WHITE), 0)
-        add(root, header, 17)
-
-        val form = column(17).apply { background = rounded(Color.WHITE, 20) }
-        add(form, label("1. YouTube bağlantısı", 20f, INK, true), 9)
+        val form = column(14).apply { background = rounded(Color.WHITE, 20) }
         link = EditText(this).apply {
-            hint = "YouTube bağlantısı buraya gelecek"
+            hint = "YouTube bağlantısı"
             setSingleLine(true)
-            textSize = 17f
+            textSize = 18f
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setTextColor(INK)
             setHintTextColor(GRAY)
-            setPadding(dp(12), dp(17), dp(12), dp(17))
+            setPadding(dp(12), dp(14), dp(12), dp(14))
             background = rounded(BACKGROUND, 14)
             contentDescription = "YouTube bağlantısı"
         }
-        add(form, link, 13)
-        add(form, button("1  ·  BAĞLANTIYI YAPIŞTIR").apply {
+        add(form, link, 12)
+        add(form, button("📋 BAĞLANTIYI YAPIŞTIR", height=70).apply {
+            textSize=21f
             setOnClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 val copied = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
                     ?.getItemAt(0)?.coerceToText(this@Mp3ConverterActivity)?.toString()
                 if (copied.isNullOrBlank()) {
-                    status.text = "Önce YouTube'da Paylaş → Bağlantıyı kopyala seç."
+                    status.text = "Bağlantıyı kopyala."
                 } else {
-                    val value = copied.trim().split(Regex("\\s+")).firstOrNull {
-                        it.startsWith("https://")
-                    } ?: copied.trim()
+                    val value=copied.trim().split(Regex("\\s+")).firstOrNull { it.startsWith("https://") }
+                        ?:copied.trim()
                     link.setText(value)
                     link.setSelection(link.text.length)
-                    status.text = "Bağlantı hazır. Şimdi yeşil düğmeye bas."
+                    status.text = "Hazır"
                 }
             }
-        }, 13)
-        add(form, label("2. Müziği indir", 20f, INK, true), 9)
-        startButton = button("2  ·  MP3 İNDİR", primary = true, height = 68).apply {
-            textSize = 21f
+        }, 12)
+        startButton = button("⬇ MP3 İNDİR", primary=true, height=78).apply {
+            textSize=24f
             setOnClickListener { download() }
         }
-        add(form, startButton, 11)
-        add(form, label("YouTube erişimi kısıtlıysa:", 15f, GRAY), 6)
-        uploadButton = button("📁 TELEFONDAN VİDEO / SES → MP3", height = 60).apply {
-            textSize = 16f
+        add(form,startButton,8)
+        uploadButton = button("📁 TELEFONDAN DOSYA SEÇ", height=60).apply {
+            textSize=17f
             setOnClickListener { pickFileToConvert() }
         }
-        add(form, uploadButton, 4)
-        add(form, label("Dosya dönüşüm için sunucuya gönderilir, işlem sonunda silinir. En fazla 60 MB.", 13f, GRAY), 12)
-        cancelButton = button("İptal Et", height = 48).apply {
-            textSize = 16f
-            visibility = View.GONE
+        add(form,uploadButton,8)
+        cancelButton = button("İPTAL", height=50).apply {
+            visibility=View.GONE
             setOnClickListener {
-                cancelled = true
-                status.text = "İndirme iptal ediliyor..."
+                cancelled=true
+                status.text="İptal ediliyor..."
                 request?.disconnect()
             }
         }
-        add(form, cancelButton, 8)
-        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            visibility = View.GONE
-            max = 100
-            isIndeterminate = true
-            progressTintList = ColorStateList.valueOf(GREEN)
+        add(form,cancelButton,5)
+        progressBar = ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply {
+            visibility=View.GONE
+            max=100
+            isIndeterminate=true
+            progressTintList=ColorStateList.valueOf(GREEN)
         }
-        add(form, progressBar, 9)
-        status = label("Hazır. Bağlantıyı yapıştırabilirsin.", 16f, GRAY)
-        add(form, status, 0)
-        add(root, form, 15)
+        add(form,progressBar,5)
+        status = label("Hazır",16f,GRAY)
+        add(form,status,0)
+        add(root,form,12)
 
-        val songs = column(16).apply { background = rounded(Color.WHITE, 20) }
-        add(songs, label("3. İndirilen müziklerim", 21f, INK, true), 6)
-        playerStatus = label("Dinlemek için bir müziğin Dinle düğmesine bas.", 14f, GRAY)
-        add(songs, playerStatus, 14)
-        musicList = column(0)
-        add(songs, musicList, 0)
-        add(root, songs, 12)
+        musicCard = column(12).apply { background=rounded(Color.WHITE,20); visibility=View.GONE }
+        add(musicCard,label("🎵 MÜZİKLERİM",21f,INK,true),8)
+        playerStatus=label("",14f,GRAY).apply { visibility=View.GONE }
+        add(musicCard,playerStatus,2)
+        musicList=column(0)
+        add(musicCard,musicList,0)
+        add(root,musicCard,12)
 
-        videoPanel = VideoPanel(this, storage)
-        add(root, videoPanel.createView(), 14)
-
-        add(root, label("Müzikler telefonda İndirilenler / LinkMP3 klasörüne kaydedilir.",
-            14f, GRAY), 0)
+        videoToggle = button("🎬 VİDEO YAP",height=78).apply {
+            textSize=23f
+            setOnClickListener {
+                videoCard.visibility = if(videoCard.visibility==View.VISIBLE) View.GONE else View.VISIBLE
+                text = if(videoCard.visibility==View.VISIBLE) "🎬 VİDEOYU KAPAT" else "🎬 VİDEO YAP"
+            }
+        }
+        add(root,videoToggle,10)
+        videoPanel=VideoPanel(this,storage)
+        videoCard=videoPanel.createView().apply { visibility=View.GONE }
+        add(root,videoCard,10)
 
         setContentView(ScrollView(this).apply {
             setBackgroundColor(BACKGROUND)
@@ -467,18 +469,15 @@ class Mp3ConverterActivity : Activity() {
             listOf(newest) + records else records
 
         if (entries.isEmpty()) {
-            val empty = label("Henüz müzik yok.\nİndirdiğin müzikler burada görünecek.", 16f, GRAY)
-            empty.setPadding(dp(6), dp(14), dp(6), dp(14))
-            add(musicList, empty, 0)
+            musicCard.visibility=View.GONE
             return
         }
+        musicCard.visibility=View.VISIBLE
 
         entries.take(50).forEachIndexed { index, entry ->
             val item = column(12).apply { background = rounded(BACKGROUND, 15) }
             add(item, label("♫  Müzik " + (index + 1), 18f, INK, true), 4)
-            add(item, label(
-                String.format(Locale.getDefault(), "%.1f MB", entry.bytes / 1048576.0),
-                13f, GRAY), 11)
+
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val play = button(if (playing?.uri == entry.uri && player?.isPlaying == true)
                 "Duraklat" else "▶ Dinle", height = 48).apply {
