@@ -86,87 +86,38 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     }
     fun createView():View {
         container.background=rounded(Color.WHITE)
-        add(container,text("🎬  VİDEO OLUŞTUR",23f,true),7)
-        add(container,text("Fotoğraf + müzik = MP4 video"),17)
-        add(container,text("1. Fotoğraf seç",19f,true),8)
+        add(container,text("🎬 VİDEO YAP",24f,true),14)
         imageView.scaleType=ImageView.ScaleType.FIT_CENTER
         imageView.visibility=View.GONE
-        container.addView(imageView,LinearLayout.LayoutParams(-1,dp(205)).apply{bottomMargin=dp(8)})
-        add(container,imageStatus,7)
-        add(container,button("📷 FOTOĞRAF SEÇ").apply{setOnClickListener{pick("image/*",IMAGE_REQUEST)}},18)
-        add(container,text("2. Müzik seç",19f,true),8)
-        add(container,soundStatus,7)
-        add(container,text("İndirdiğin MP3'ler:",15f),7)
-        add(container,songList,8)
-        add(container,button("🎵 TELEFONDAN SES SEÇ").apply{setOnClickListener{pick("audio/*",SOUND_REQUEST)}},18)
-        add(container,text("3. Ses tam nereden başlasın?",19f,true),8)
-        add(container,text("Şarkının başı varsayılan. Şarkıcı geç giriyorsa tahmini dinle ve onayla; yanlışsa kendin ayarla.",14f),8)
-        add(container,introStatus,4)
-        seek.max = 0
-        seek.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(b:SeekBar?,value:Int,fromUser:Boolean) {
-                if (fromUser) chooseStart(value * IntroSelection.STEP_MS)
-            }
-            override fun onStartTrackingTouch(b:SeekBar?) {}
-            override fun onStopTrackingTouch(b:SeekBar?) {}
-        })
-        add(container,seek,4)
-        val nudges = LinearLayout(host).apply { orientation=LinearLayout.HORIZONTAL }
-        listOf(
-            "◀ 2 sn" to -2000L, "◀ 0.5 sn" to -500L,
-            "+0.5 sn ▶" to 500L, "+2 sn ▶" to 2000L
-        ).forEach { (label, delta) ->
-            val b = button(label).apply {
-                textSize = 13f
-                setOnClickListener { chooseStart(startAt + delta) }
-            }
-            nudges.addView(b, LinearLayout.LayoutParams(0, dp(50), 1f).apply {
-                rightMargin=dp(3)
-            })
-        }
-        add(container,nudges,5)
-        add(container,button("↩ Şarkının en başına dön").apply {
-            setOnClickListener { chooseStart(0L) }
+        container.addView(imageView,LinearLayout.LayoutParams(-1,dp(150)).apply{bottomMargin=dp(8)})
+        imageStatus.visibility=View.GONE
+        add(container,imageStatus,4)
+        add(container,button("📷 FOTOĞRAF SEÇ").apply {
+            textSize=21f; minHeight=dp(72)
+            setOnClickListener{pick("image/*",IMAGE_REQUEST)}
         },12)
-        add(container,suggestionStatus,5)
-        val proposals = LinearLayout(host).apply { orientation=LinearLayout.HORIZONTAL }
-        suggestListen.visibility=View.GONE
-        suggestApply.visibility=View.GONE
-        suggestListen.textSize=14f
-        suggestApply.textSize=14f
-        proposals.addView(suggestListen,LinearLayout.LayoutParams(0,dp(55),1f).apply{rightMargin=dp(6)})
-        proposals.addView(suggestApply,LinearLayout.LayoutParams(0,dp(55),1f))
-        suggestListen.setOnClickListener {
-            suggestedStart?.let {
-                state.text="Tahmini dinliyorsun. İlk kelime eksikse başlangıcı biraz geri al."
-                listenFrom(it)
-            }
-        }
-        suggestApply.setOnClickListener {
-            suggestedStart?.let { chooseStart(it) }
-        }
-        add(container,proposals,8)
-        add(container,listen.apply {
-            setOnClickListener { if (player != null) stopPreview() else preview() }
-        },18)
-        add(container,text("4. Video kaç dakika?",19f,true),10)
-        val choices=LinearLayout(host).apply{orientation=LinearLayout.HORIZONTAL}
-        minuteButtons=VideoPlan.minutes.associateWith{value->
-            button(value.toString()+" dk").also{b->
-                b.textSize=15f
-                choices.addView(b,LinearLayout.LayoutParams(0,dp(52),1f).apply{rightMargin=dp(if(value==4)0 else 4)})
-                b.setOnClickListener{minute=value;selectMinute()}
-            }
-        }
-        selectMinute()
-        add(container,choices,17)
-        add(container,make.apply{setOnClickListener{generate()}},7)
+        soundStatus.visibility=View.GONE
+        add(container,soundStatus,4)
+        songList.visibility=View.GONE
+        add(container,songList,1)
+        add(container,button("🎵 MÜZİK SEÇ").apply {
+            textSize=21f; minHeight=dp(72)
+            setOnClickListener{pick("audio/*",SOUND_REQUEST)}
+        },14)
+        // One minute, from the exact beginning, no hidden auto-seek or confusing controls.
+        minute=1
+        startAt=0L
+        add(container,make.apply {
+            textSize=22f; minHeight=dp(78)
+            setOnClickListener{generate()}
+        },8)
         abort.visibility=View.GONE
-        abort.setOnClickListener{runner.cancel();handler.removeCallbacks(poll);finish("Video iptal edildi.")}
-        add(container,abort,7)
+        abort.setOnClickListener{runner.cancel();handler.removeCallbacks(poll);finish("İptal edildi.")}
+        add(container,abort,6)
         progress.visibility=View.GONE;progress.max=100
         progress.progressTintList=ColorStateList.valueOf(emerald)
         add(container,progress,8)
+        state.text=""
         add(container,state,8)
         open.visibility=View.GONE
         open.setOnClickListener{openVideo()}
@@ -194,13 +145,13 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         try{host.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)}catch(_:Exception){}
         if(request==IMAGE_REQUEST){
             image=uri;imageView.setImageURI(uri);imageView.visibility=View.VISIBLE
-            imageStatus.text="✓ Fotoğraf seçildi"
+            imageStatus.text="✓ Fotoğraf seçildi"; imageStatus.visibility=View.VISIBLE
         }else if(request==SOUND_REQUEST) {
-            selectAudio(uri,"Telefondan müzik seçildi")
+            selectAudio(uri,"Müzik seçildi")
         }
     }
     fun refreshMusic(last:AudioEntry?=null) {
-        if(last!=null)selectAudio(last.uri,"Yeni indirilen MP3")
+        if(last!=null)selectAudio(last.uri,"Müzik seçildi")
         val records=try{storage.list().take(12)}catch(_:Exception){emptyList()}
         songList.removeAllViews()
         if(records.isEmpty())add(songList,text("MP3 yoksa önce üstten indir.",14f),5)
@@ -218,13 +169,14 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         stopPreview()
         startAt = IntroSelection.clamp(value, soundLength)
         seek.progress = (startAt / IntroSelection.STEP_MS).toInt()
-        introStatus.text = "Video ve önizleme başlangıcı: " + IntroSelection.label(startAt)
+        introStatus.text = ""
     }
 
     private fun selectAudio(uri:Uri,name:String) {
         stopPreview()
         sound=uri
         soundStatus.text="✓ "+name
+        soundStatus.visibility=View.VISIBLE
         val serial=++detectionJob
         soundLength=try {
             val retriever=MediaMetadataRetriever()
@@ -238,26 +190,7 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         suggestApply.visibility=View.GONE
         seek.max = (IntroSelection.maxStart(soundLength) / IntroSelection.STEP_MS).toInt()
         chooseStart(0L)
-        suggestionStatus.text="İlk vokal girişi tahmin ediliyor. Video şimdilik şarkının başından başlayacak."
-        Thread {
-            val raw=IntroFinder.estimateMs(host,uri)
-            val candidate=IntroSelection.proposal(raw,soundLength)
-            host.runOnUiThread {
-                if(serial!=detectionJob||sound!=uri||host.isDestroyed) return@runOnUiThread
-                suggestedStart=candidate
-                if(candidate==null) {
-                    suggestionStatus.text="Güvenilir giriş tahmini bulunamadı. Çubukla ayarla ve dinle."
-                    suggestListen.visibility=View.GONE
-                    suggestApply.visibility=View.GONE
-                } else {
-                    suggestionStatus.text="Tahmini giriş: "+IntroSelection.label(candidate)+
-                        " (ilk kelimeyi kesmemek için biraz geriden). Önce dinle."
-                    suggestListen.visibility=View.VISIBLE
-                    suggestApply.visibility=View.VISIBLE
-                }
-                // Never change a manually selected or default position after analysis.
-            }
-        }.start()
+        // Simple mode: never guess, shift, or cut the start without user input.
     }
 
     private fun preview() {

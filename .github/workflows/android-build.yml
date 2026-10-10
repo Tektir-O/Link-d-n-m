@@ -39,13 +39,13 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | tee permissions.txt
           grep -F 'android.permission.INTERNET' permissions.txt
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | tee badging.txt
-          grep -F "package: name='com.kadir.muzikindir.video25'" badging.txt
+          grep -F "package: name='com.kadir.muzikindir.video27'" badging.txt
           grep -q 'android:usesCleartextTraffic="false"' app/src/main/AndroidManifest.xml
           unzip -tq "$APK"
       - name: Test APK dosyası
         uses: actions/upload-artifact@v4
         with:
-          name: muzik-indir-video-v25-debug-apk
+          name: muzik-indir-video-v27-anne-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
