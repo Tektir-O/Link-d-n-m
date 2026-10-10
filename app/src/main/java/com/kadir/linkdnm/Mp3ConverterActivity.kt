@@ -41,6 +41,7 @@ class Mp3ConverterActivity : Activity() {
         const val ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert"
         const val FILE_ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert-file"
         const val PICK_FILE_MP3 = 5301
+        const val CUT_AUDIO_REQUEST = 5302
         const val MAX_UPLOAD_BYTES = 60L * 1024L * 1024L
         val BACKGROUND = Color.rgb(243, 248, 246)
         val GREEN = Color.rgb(11, 108, 83)
@@ -225,7 +226,16 @@ class Mp3ConverterActivity : Activity() {
     @Deprecated("Android picker result")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PICK_FILE_MP3 && resultCode == RESULT_OK) {
+        if (requestCode == CUT_AUDIO_REQUEST && resultCode == RESULT_OK) {
+            data?.data?.let { uri ->
+                latestDownload = storage.list().firstOrNull { it.uri == uri }
+                refreshMusic()
+                if (::videoPanel.isInitialized) videoPanel.selectSavedCut(uri)
+                if (::videoCard.isInitialized) videoCard.visibility = View.VISIBLE
+                if (::videoToggle.isInitialized) videoToggle.text = "🎬 VİDEOYU KAPAT"
+                status.text = "✓ Kesilen müzik video için hazır"
+            }
+        } else if (requestCode == PICK_FILE_MP3 && resultCode == RESULT_OK) {
             data?.data?.let { convertSelectedFile(it) }
         } else if (::videoPanel.isInitialized) videoPanel.result(requestCode, resultCode, data)
     }
@@ -489,7 +499,7 @@ class Mp3ConverterActivity : Activity() {
             val edit = button("✂ Kes", height = 48).apply {
                 textSize = 15f
                 setOnClickListener {
-                    startActivity(Intent(this@Mp3ConverterActivity, AudioCutActivity::class.java)
+                    startActivityForResult(Intent(this@Mp3ConverterActivity, AudioCutActivity::class.java)
                         .putExtra("audio_uri", entry.uri.toString()))
                 }
             }
