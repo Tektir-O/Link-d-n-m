@@ -15,6 +15,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.NumberPicker
 import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
@@ -38,6 +39,12 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     private val introStatus = text("Başlangıç: 0 saniye")
     private val songList = column(0)
     private val seek = SeekBar(host)
+    private val waveform = AudioWaveformView(host) { chooseStart(it) }
+    private val zoomButton = button("🔍 12 saniyeye yakınlaştır")
+    private var zoomed = false
+    private val minutePicker = NumberPicker(host).apply { minValue=0; maxValue=20; value=3; wrapSelectorWheel=false }
+    private val secondPicker = NumberPicker(host).apply { minValue=0; maxValue=59; value=0; wrapSelectorWheel=false }
+    private val durationStatus = text("Video süresi: 03:00", 17f, true)
     private val state = text("Video hazırlamak için fotoğraf seç.")
     private val progress = ProgressBar(host, null, android.R.attr.progressBarStyleHorizontal)
     private val make = button("🎬 VİDEO OLUŞTUR", true)
@@ -47,7 +54,8 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     private val suggestListen = button("▶ Tahmini dinle")
     private val suggestApply = button("✓ Tahmini kullan")
     private val open = button("▶ Oluşturulan videoyu aç")
-    private var minute = 1
+    private var minute = 3
+    private var second = 0
     private var minuteButtons = mapOf<Int,Button>()
     private var image: Uri? = null
     private var sound: Uri? = null
@@ -102,6 +110,14 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         add(container,text("3. Ses tam nereden başlasın?",19f,true),8)
         add(container,text("Şarkının başı varsayılan. Şarkıcı geç giriyorsa tahmini dinle ve onayla; yanlışsa kendin ayarla.",14f),8)
         add(container,introStatus,4)
+        add(container,text("Ses dalgasına dokunarak başlangıcı seç. Yakınlaştırıp 0,1 saniye ayarlayabilirsin.",14f),5)
+        container.addView(waveform,LinearLayout.LayoutParams(-1,dp(126)).apply{bottomMargin=dp(6)})
+        zoomButton.setOnClickListener {
+            zoomed=!zoomed
+            waveform.setZoom(zoomed)
+            zoomButton.text=if(zoomed)"🔎 Tüm ses dalgasını göster" else "🔍 12 saniyeye yakınlaştır"
+        }
+        add(container,zoomButton,8)
         seek.max = 0
         seek.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(b:SeekBar?,value:Int,fromUser:Boolean) {
@@ -113,8 +129,8 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         add(container,seek,4)
         val nudges = LinearLayout(host).apply { orientation=LinearLayout.HORIZONTAL }
         listOf(
-            "◀ 2 sn" to -2000L, "◀ 0.5 sn" to -500L,
-            "+0.5 sn ▶" to 500L, "+2 sn ▶" to 2000L
+            "◀ 1 sn" to -1000L, "◀ 0,1 sn" to -100L,
+            "+0,1 sn ▶" to 100L, "+1 sn ▶" to 1000L
         ).forEach { (label, delta) ->
             val b = button(label).apply {
                 textSize = 13f
@@ -149,17 +165,36 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         add(container,listen.apply {
             setOnClickListener { if (player != null) stopPreview() else preview() }
         },18)
-        add(container,text("4. Video kaç dakika?",19f,true),10)
+        add(container,text("4. Video ne kadar uzun olsun?",19f,true),8)
+        add(container,text("Dakika ve saniyeyi seç. Videonun uzunluğu tam bu süreye ayarlanır (5 saniye - 20 dakika).",14f),8)
+        val timeControls=LinearLayout(host).apply { orientation=LinearLayout.HORIZONTAL }
+        val minCol=column(0)
+        add(minCol,text("DAKİKA",14f,true),2)
+        minCol.addView(minutePicker,LinearLayout.LayoutParams(-1,dp(116)))
+        timeControls.addView(minCol,LinearLayout.LayoutParams(0,-2,1f))
+        val secCol=column(0)
+        add(secCol,text("SANİYE",14f,true),2)
+        secCol.addView(secondPicker,LinearLayout.LayoutParams(-1,dp(116)))
+        timeControls.addView(secCol,LinearLayout.LayoutParams(0,-2,1f))
+        add(container,timeControls,5)
+        minutePicker.setOnValueChangedListener { _,_,_ -> updateDuration() }
+        secondPicker.setOnValueChangedListener { _,_,_ -> updateDuration() }
+        add(container,durationStatus,8)
+        add(container,text("Hazır süreler:",14f),5)
         val choices=LinearLayout(host).apply{orientation=LinearLayout.HORIZONTAL}
         minuteButtons=VideoPlan.minutes.associateWith{value->
             button(value.toString()+" dk").also{b->
                 b.textSize=15f
                 choices.addView(b,LinearLayout.LayoutParams(0,dp(52),1f).apply{rightMargin=dp(if(value==4)0 else 4)})
-                b.setOnClickListener{minute=value;selectMinute()}
+                b.setOnClickListener {
+                    minutePicker.value=value
+                    secondPicker.value=0
+                    updateDuration()
+                }
             }
         }
-        selectMinute()
-        add(container,choices,17)
+        updateDuration()
+        add(container,choices,15)
         add(container,make.apply{setOnClickListener{generate()}},7)
         abort.visibility=View.GONE
         abort.setOnClickListener{runner.cancel();handler.removeCallbacks(poll);finish("Video iptal edildi.")}
@@ -176,9 +211,16 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
     }
     private fun selectMinute() {
         for((n,b) in minuteButtons){
-            b.background=rounded(if(minute==n)emerald else pale)
-            b.setTextColor(if(minute==n)Color.WHITE else emerald)
+            val selected=minute==n && second==0
+            b.background=rounded(if(selected)emerald else pale)
+            b.setTextColor(if(selected)Color.WHITE else emerald)
         }
+    }
+    private fun updateDuration() {
+        minute=minutePicker.value
+        second=secondPicker.value
+        durationStatus.text = "Video süresi: %02d:%02d".format(java.util.Locale.ROOT, minute, second)
+        selectMinute()
     }
     private fun pick(type:String,code:Int) {
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -218,6 +260,7 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         stopPreview()
         startAt = IntroSelection.clamp(value, soundLength)
         seek.progress = (startAt / IntroSelection.STEP_MS).toInt()
+        waveform.updatePosition(startAt)
         introStatus.text = "Video ve önizleme başlangıcı: " + IntroSelection.label(startAt)
     }
 
@@ -237,13 +280,19 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         suggestListen.visibility=View.GONE
         suggestApply.visibility=View.GONE
         seek.max = (IntroSelection.maxStart(soundLength) / IntroSelection.STEP_MS).toInt()
+        waveform.updateAudio(FloatArray(360), soundLength)
+        zoomed=false
+        waveform.setZoom(false)
+        zoomButton.text="🔍 12 saniyeye yakınlaştır"
         chooseStart(0L)
         suggestionStatus.text="İlk vokal girişi tahmin ediliyor. Video şimdilik şarkının başından başlayacak."
         Thread {
-            val raw=IntroFinder.estimateMs(host,uri)
-            val candidate=IntroSelection.proposal(raw,soundLength)
+            val analysis=IntroFinder.analyze(host,uri)
+            val candidate=IntroSelection.proposal(analysis.suggestionMs,soundLength)
             host.runOnUiThread {
                 if(serial!=detectionJob||sound!=uri||host.isDestroyed) return@runOnUiThread
+                waveform.updateAudio(analysis.amplitudes, soundLength)
+                waveform.updatePosition(startAt)
                 suggestedStart=candidate
                 if(candidate==null) {
                     suggestionStatus.text="Güvenilir giriş tahmini bulunamadı. Çubukla ayarla ve dinle."
@@ -307,12 +356,19 @@ class VideoPanel(private val host: Activity, private val storage: Mp3Storage) {
         val img=image?:run{state.text="Önce fotoğraf seç.";return}
         val mp3=sound?:run{state.text="Önce müzik seç.";return}
         if(runner.busy)return
+        val exactDuration = try {
+            VideoPlan.durationMs(minutePicker.value,secondPicker.value)
+        } catch (e: IllegalArgumentException) {
+            state.text=e.message ?: "Süreyi düzelt."
+            return
+        }
         stopPreview();make.isEnabled=false;abort.visibility=View.VISIBLE
         progress.progress=0;progress.visibility=View.VISIBLE;state.text="Video hazırlanıyor. Bekle..."
         try{
             runner.export(img,mp3,minute,startAt,soundLength,
                 onSaved={uri->videoUri=uri;finish("✓ Video hazır! Galeriye kaydedildi.");open.visibility=View.VISIBLE},
-                onError={error->finish("Video yapılamadı: "+error)}
+                onError={error->finish("Video yapılamadı: "+error)},
+                customDurationMs=exactDuration
             )
             handler.post(poll)
         }catch(e:Exception){finish(e.message?:"Video başlatılamadı.")}
