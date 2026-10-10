@@ -2,7 +2,7 @@ name: Link MP3 | Android APK ve servis testleri
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
   workflow_dispatch:
 
@@ -42,10 +42,11 @@ jobs:
           grep -F "package: name='com.kadir.linkmp3.mobile'" badging.txt
           grep -q 'android:usesCleartextTraffic="false"' app/src/main/AndroidManifest.xml
           unzip -tq "$APK"
+          grep -F "versionCode=\u00273\u0027" badging.txt
       - name: Test APK dosyası
         uses: actions/upload-artifact@v4
         with:
-          name: link-d-n-m-debug-apk
+          name: link-mp3-v2-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30

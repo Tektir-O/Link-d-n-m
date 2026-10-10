@@ -11,8 +11,8 @@ android {
         applicationId = "com.kadir.linkmp3.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "2.0.0"
     }
 
     buildTypes {
@@ -36,5 +36,6 @@ android {
 }
 
 dependencies {
+    implementation("androidx.core:core:1.13.1")
     testImplementation("junit:junit:4.13.2")
 }
