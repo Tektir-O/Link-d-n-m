@@ -1,0 +1,44 @@
+name: Canli Railway MP3 Dosya Donusum Testi
+
+on:
+  push:
+    paths: [".github/workflows/live-server-file-test.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-file-convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Generate local synthetic WAV audio
+        run: |
+          python3 - <<'PY'
+          import wave, math, struct
+          filename="/tmp/linkmp3-live-tone.wav"
+          with wave.open(filename,"wb") as w:
+              w.setnchannels(1); w.setsampwidth(2); w.setframerate(22050)
+              for i in range(22050*2):
+                  sample=int(8000*math.sin(2*math.pi*440*i/22050))
+                  w.writeframesraw(struct.pack("<h",sample))
+          print("Generated",filename)
+          PY
+      - name: Exercise real production /convert-file endpoint
+        run: |
+          set -eu
+          curl --fail --silent --show-error --max-time 15 https://link-mp3-api-production.up.railway.app/health | grep -q ok
+          curl --fail --show-error --silent --max-time 130 \
+            -X POST -H 'Content-Type: audio/wav' \
+            --data-binary @/tmp/linkmp3-live-tone.wav \
+            https://link-mp3-api-production.up.railway.app/convert-file \
+            -o /tmp/linkmp3-live-output.mp3
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("/tmp/linkmp3-live-output.mp3")
+          b=p.read_bytes()
+          assert len(b)>3000, f"MP3 too small: {len(b)}"
+          assert b[:3]==b"ID3" or (b[0]==0xff and (b[1]&0xe0)==0xe0), "Not MP3 magic"
+          print("LIVE Railway MP3 PASS, bytes:",len(b))
+          PY
