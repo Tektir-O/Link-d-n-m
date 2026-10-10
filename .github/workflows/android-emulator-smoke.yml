@@ -45,16 +45,7 @@ jobs:
             adb shell input swipe 510 1480 510 520 450
             adb shell uiautomator dump /sdcard/window.xml
             adb pull /sdcard/window.xml window.xml >/dev/null
-            python3 - <<'PY'
-            import re, subprocess, xml.etree.ElementTree as ET
-            root = ET.parse("window.xml").getroot()
-            matches = [x for x in root.iter("node") if "MP3'leri Aç" in x.attrib.get("text", "")]
-            assert matches, "MP3 arşivi düğmesi bulunamadı"
-            bounds = [int(n) for n in re.findall(r"\d+", matches[0].attrib["bounds"])]
-            assert len(bounds) == 4, bounds
-            x, y = (bounds[0] + bounds[2]) // 2, (bounds[1] + bounds[3]) // 2
-            subprocess.run(["adb", "shell", "input", "tap", str(x), str(y)], check=True)
-            PY
+            python3 -c "import re,subprocess,xml.etree.ElementTree as ET; root=ET.parse('window.xml').getroot(); nodes=[n for n in root.iter('node') if 'MP3' in n.get('text','') and 'Aç' in n.get('text','')]; assert nodes, 'MP3 archive button not found'; bounds=[int(x) for x in re.findall(r'\\d+',nodes[0].get('bounds',''))]; assert len(bounds)==4; subprocess.run(['adb','shell','input','tap',str((bounds[0]+bounds[2])//2),str((bounds[1]+bounds[3])//2)],check=True)"
             sleep 3
             adb shell dumpsys activity activities | grep -F Mp3LibraryActivity
             adb shell pidof com.kadir.linkmp3.mobile
