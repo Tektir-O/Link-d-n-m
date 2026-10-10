@@ -3,6 +3,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -159,7 +160,28 @@ class Handler(BaseHTTPRequestHandler):
                     mp3 = convert(url, video_id, Path(directory))
                 except subprocess.TimeoutExpired:
                     return self.respond_json(504, "Dönüştürme zaman aşımına uğradı.")
-                except (subprocess.CalledProcessError, RuntimeError, OSError):
+                except subprocess.CalledProcessError as exc:
+                    output = str(exc.output or "").lower()
+                    if "sign in to confirm" in output or "not a bot" in output or "cookies" in output:
+                        print("Conversion failed: YouTube bot / authentication block", flush=True)
+                        return self.respond_json(502, "YouTube sunucuya erişim kısıtlaması uyguladı.")
+                    if "ffmpeg" in output and ("not found" in output or "not installed" in output):
+                        print("Conversion failed: ffmpeg missing", flush=True)
+                        return self.respond_json(503, "Sunucuda FFmpeg kurulu değil.")
+                    if "unavailable" in output or "private video" in output:
+                        print("Conversion failed: video unavailable", flush=True)
+                        return self.respond_json(422, "Video indirilemedi: özel, kaldırılmış veya erişime kapalı olabilir.")
+                    if "unable to extract" in output or "signature" in output:
+                        print("Conversion failed: extraction/signature issue", flush=True)
+                        return self.respond_json(502, "YouTube video biçimi ayrıştırılamadı. Sunucu güncellemesi gerekiyor.")
+                    print(f"Conversion failed: yt-dlp exit code {exc.returncode}; output_tail={output[-320:]!r}", flush=True)
+                    return self.respond_json(502, "Video alınamadı veya MP3 oluşturulamadı.")
+                except FileNotFoundError as exc:
+                    tool = str(exc.filename or "unknown")
+                    print(f"Conversion failed: tool not installed: {tool}", flush=True)
+                    return self.respond_json(503, "Sunucunun MP3 dönüştürme aracı kurulu değil.")
+                except (RuntimeError, OSError) as exc:
+                    print(f"Conversion failed: {type(exc).__name__}", flush=True)
                     return self.respond_json(502, "Video alınamadı veya MP3 oluşturulamadı.")
                 except ValueError as exc:
                     return self.respond_json(413, str(exc))
@@ -189,6 +211,7 @@ if __name__ == "__main__":
         raise SystemExit("API anahtarı en az 16 karakter olmalı.")
     Handler.api_key = key
     Handler.public_mode = public_mode
+    print(f"Tools present: yt-dlp={bool(shutil.which('yt-dlp'))}, ffmpeg={bool(shutil.which('ffmpeg'))}", flush=True)
     port = int(os.getenv("PORT", "8080"))
     print(f"MP3 sunucusu 0.0.0.0:{port} dinliyor. HTTPS proxy kullanın.", flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
