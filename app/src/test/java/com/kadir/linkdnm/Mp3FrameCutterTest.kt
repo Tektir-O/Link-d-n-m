@@ -27,6 +27,21 @@ class Mp3FrameCutterTest {
         assertTrue(result.isEmpty())
     }
 
+    @Test fun id3HeaderIsSkipped() {
+        val header = byteArrayOf(73, 68, 51, 4, 0, 0, 0, 0, 0, 0)
+        val frames = sampleFrames(4)
+        val source = header + frames
+        val result = Mp3FrameCutter.cut(source, listOf(0L to 1000L))
+        assertEquals(frames.size, result.size)
+    }
+
+    @Test fun disjointRangesExcludeMiddleFrames() {
+        val source = sampleFrames(20)
+        val result = Mp3FrameCutter.cut(source, listOf(0L to 30L, 300L to 400L))
+        assertTrue(result.isNotEmpty())
+        assertTrue(result.size < source.size)
+    }
+
     @Test fun partialRangeReturnsFewerFrames() {
         val source = sampleFrames(20)
         val result = Mp3FrameCutter.cut(source, listOf(0L to 50L))
