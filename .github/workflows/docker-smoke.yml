@@ -23,10 +23,16 @@ jobs:
           docker run -d --name link-mp3-smoke -e LINK_MP3_PUBLIC_MODE=1 -p 127.0.0.1:18080:8080 link-mp3:ci
           trap 'docker logs link-mp3-smoke; docker rm -f link-mp3-smoke' EXIT
           docker exec link-mp3-smoke yt-dlp --version
+          docker exec link-mp3-smoke deno --version
+          docker exec link-mp3-smoke python -m pip show yt-dlp-ejs
           docker exec link-mp3-smoke ffmpeg -version
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error http://127.0.0.1:18080/health; then
               echo "Docker HTTP health is OK"
+              code=$(curl -sS -o /tmp/mp3-bad.json -w '%{http_code}' -H 'Content-Type: application/json' -d '{"url":"https://invalid.example"}' http://127.0.0.1:18080/convert)
+              test "$code" = 400
+              grep -q 'error' /tmp/mp3-bad.json
+              echo "Invalid URL rejected safely"
               exit 0
             fi
             sleep 2
