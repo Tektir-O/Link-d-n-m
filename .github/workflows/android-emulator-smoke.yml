@@ -39,14 +39,14 @@ jobs:
           script: |
             gradle --no-daemon :app:assembleDebug
             adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -n com.kadir.linkmp3.mobile/com.kadir.linkdnm.Mp3ConverterActivity
+            adb shell am start -n com.kadir.linkmp3.pro/com.kadir.linkdnm.Mp3ConverterActivity
             sleep 5
-            adb shell pidof com.kadir.linkmp3.mobile
+            adb shell pidof com.kadir.linkmp3.pro
             adb shell input swipe 510 1480 510 520 450
             adb shell uiautomator dump /sdcard/window.xml
             adb pull /sdcard/window.xml window.xml >/dev/null
             python3 -c "import re,subprocess,xml.etree.ElementTree as ET; root=ET.parse('window.xml').getroot(); nodes=[n for n in root.iter('node') if 'MP3' in n.get('text','') and 'Aç' in n.get('text','')]; assert nodes, 'MP3 archive button not found'; bounds=[int(x) for x in re.findall('[0-9]+',nodes[0].get('bounds',''))]; assert len(bounds)==4; subprocess.run(['adb','shell','input','tap',str((bounds[0]+bounds[2])//2),str((bounds[1]+bounds[3])//2)],check=True)"
             sleep 3
             adb shell dumpsys activity activities | grep -F Mp3LibraryActivity
-            adb shell pidof com.kadir.linkmp3.mobile
+            adb shell pidof com.kadir.linkmp3.pro
             adb logcat -d -t 500 | grep -F 'FATAL EXCEPTION' && exit 1 || true
