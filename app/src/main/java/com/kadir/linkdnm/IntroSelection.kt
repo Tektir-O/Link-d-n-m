@@ -6,7 +6,7 @@ package com.kadir.linkdnm
  */
 object IntroSelection {
     const val PRE_ROLL_MS = 1_800L
-    const val STEP_MS = 500L
+    const val STEP_MS = 100L
     const val MAX_SELECT_MS = 90_000L
 
     fun maxStart(durationMs: Long): Long =
@@ -28,9 +28,9 @@ object IntroSelection {
         clamp(currentMs + changeMs, durationMs)
 
     fun label(timeMs: Long): String {
-        val units = (timeMs.coerceAtLeast(0L) / STEP_MS).toInt()
-        val seconds = units / 2
+        val tenths = (timeMs.coerceAtLeast(0L) / STEP_MS).toInt()
+        val seconds = tenths / 10
         return "%02d:%02d.%d".format(java.util.Locale.ROOT,
-            seconds / 60, seconds % 60, if (units % 2 == 0) 0 else 5)
+            seconds / 60, seconds % 60, tenths % 10)
     }
 }
