@@ -211,7 +211,34 @@ if __name__ == "__main__":
         raise SystemExit("API anahtarı en az 16 karakter olmalı.")
     Handler.api_key = key
     Handler.public_mode = public_mode
-    print(f"Tools present: yt-dlp={bool(shutil.which('yt-dlp'))}, ffmpeg={bool(shutil.which('ffmpeg'))}", flush=True)
+    print(f"Tools present: yt-dlp={bool(shutil.which('yt-dlp'))}, ffmpeg={bool(shutil.which('ffmpeg'))}, node={bool(shutil.which('node'))}, deno={bool(shutil.which('deno'))}", flush=True)
+    diagnose_id = os.getenv("LINK_MP3_DIAG_VIDEO_ID", "")
+    if VIDEO_ID.fullmatch(diagnose_id):
+        print("Starting single YouTube metadata diagnostic (no download)", flush=True)
+        try:
+            diag = subprocess.run([
+                "yt-dlp", "--skip-download", "--no-playlist", "--no-progress",
+                "--no-warnings", "--print", "id", "--socket-timeout", "12",
+                "--retries", "0", "--",
+                f"https://www.youtube.com/watch?v={diagnose_id}",
+            ], capture_output=True, text=True, timeout=35)
+            stderr = (diag.stderr or "").lower()
+            reason = "unknown"
+            if diag.returncode == 0:
+                reason = "metadata available"
+            elif "sign in to confirm" in stderr or "not a bot" in stderr:
+                reason = "YouTube login/bot block"
+            elif "js runtime" in stderr or "javascript" in stderr or "signature" in stderr:
+                reason = "YouTube signature / JavaScript runtime issue"
+            elif "unavailable" in stderr:
+                reason = "video unavailable"
+            elif "timed out" in stderr or "timeout" in stderr:
+                reason = "network timeout"
+            elif "unsupported" in stderr:
+                reason = "extractor unsupported"
+            print(f"YouTube metadata diagnostic: result={reason}, exit={diag.returncode}, stderr_tail={stderr[-220:]!r}", flush=True)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(f"YouTube metadata diagnostic could not run: {type(exc).__name__}", flush=True)
     port = int(os.getenv("PORT", "8080"))
     print(f"MP3 sunucusu 0.0.0.0:{port} dinliyor. HTTPS proxy kullanın.", flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
