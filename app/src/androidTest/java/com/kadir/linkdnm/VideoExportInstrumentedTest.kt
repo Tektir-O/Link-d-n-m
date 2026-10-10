@@ -75,7 +75,7 @@ class VideoExportInstrumentedTest {
                 Uri.fromFile(photo), Uri.fromFile(sound), 1, 500, 2000,
                 onSaved = { uri -> result.set(uri); finished.countDown() },
                 onError = { e -> failure.set(e); finished.countDown() },
-                testDurationMs = 3000
+                customDurationMs = VideoPlan.durationMs(0, 7)
             )
         }
         assertTrue("Video export timed out", finished.await(160, TimeUnit.SECONDS))
@@ -86,7 +86,7 @@ class VideoExportInstrumentedTest {
         try {
             meta.setDataSource(context, uri!!)
             val duration = meta.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            assertTrue("Expected about 3 seconds of video, got " + duration, duration in 2500L..4500L)
+            assertTrue("Expected custom 7-second video, got " + duration, duration in 6600L..7600L)
             assertEquals("yes", meta.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO))
             assertEquals("yes", meta.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO))
             assertTrue("Audio should be audible immediately after 500ms trim", firstAudioRms(context, uri) > 0.035)
