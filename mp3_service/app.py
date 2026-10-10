@@ -20,6 +20,9 @@ CONVERT_TIMEOUT_SECONDS = 300
 MAX_DURATION_SECONDS = 5400
 QUALITIES = {128, 192, 320}
 DEFAULT_QUALITY = 192
+# Optional official EJS script provider (Deno is required). This improves JS
+# signature support, but cannot override a YouTube login/bot challenge.
+ENABLE_REMOTE_EJS = os.getenv("LINK_MP3_REMOTE_EJS", "0") == "1"
 SLOTS = threading.BoundedSemaphore(2)
 
 # Strict caps for public, no-login mobile conversions. Limits are per running instance;
@@ -88,9 +91,15 @@ def canonical_youtube_url(raw: str) -> tuple[str, str]:
 def convert(url: str, video_id: str, folder: Path, quality: int = DEFAULT_QUALITY) -> Path:
     if type(quality) is not int or quality not in QUALITIES:
         raise ValueError("Desteklenmeyen MP3 kalitesi.")
+    # Use the recommended JavaScript runtime when present. yt-dlp's official
+    # bundle typically already includes EJS; npm fetching remains opt-in.
+    runtime_options = ["--js-runtimes", "deno"] if shutil.which("deno") else []
+    if ENABLE_REMOTE_EJS and shutil.which("deno"):
+        runtime_options += ["--remote-components", "ejs:npm"]
     subprocess.run(
         [
-            "yt-dlp", "--no-playlist", "--no-progress", "--no-warnings",
+            "yt-dlp", "--ignore-config", *runtime_options,
+            "--no-playlist", "--no-progress", "--no-warnings",
             "--no-mtime", "--no-cache-dir", "--restrict-filenames",
             "--max-filesize", "80M", "--socket-timeout", "20", "--retries", "2",
             "--match-filter", f"duration <= {MAX_DURATION_SECONDS}",
@@ -113,12 +122,17 @@ class Handler(BaseHTTPRequestHandler):
     public_mode = False
     server_version = "LinkMp3/1.1"
 
-    def respond_json(self, status: int, message: str):
-        payload = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
+    def respond_json(self, status: int, message: str, error_code: str = "", retry_after: int = 0):
+        data = {"error": message}
+        if error_code:
+            data["error_code"] = error_code
+        payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
+        if retry_after > 0:
+            self.send_header("Retry-After", str(retry_after))
         self.end_headers()
         self.wfile.write(payload)
 
@@ -172,8 +186,13 @@ class Handler(BaseHTTPRequestHandler):
                 except subprocess.CalledProcessError as exc:
                     output = str(exc.output or "").lower()
                     if "sign in to confirm" in output or "not a bot" in output or "cookies" in output:
-                        print("Conversion failed: YouTube bot / authentication block", flush=True)
-                        return self.respond_json(502, "YouTube sunucuya erişim kısıtlaması uyguladı.")
+                        print("Conversion failed: YouTube requires login/bot verification", flush=True)
+                        return self.respond_json(
+                            503,
+                            "YouTube şu anda sunucudan indirmeye izin vermiyor. Bir süre sonra yeniden dene. Video için telefondaki MP3 dosyanı da seçebilirsin.",
+                            error_code="YOUTUBE_VERIFICATION_REQUIRED",
+                            retry_after=600,
+                        )
                     if "ffmpeg" in output and ("not found" in output or "not installed" in output):
                         print("Conversion failed: ffmpeg missing", flush=True)
                         return self.respond_json(503, "Sunucuda FFmpeg kurulu değil.")
@@ -182,9 +201,14 @@ class Handler(BaseHTTPRequestHandler):
                     if "unavailable" in output or "private video" in output:
                         print("Conversion failed: video unavailable", flush=True)
                         return self.respond_json(422, "Video indirilemedi: özel, kaldırılmış veya erişime kapalı olabilir.")
-                    if "unable to extract" in output or "signature" in output:
-                        print("Conversion failed: extraction/signature issue", flush=True)
-                        return self.respond_json(502, "YouTube video biçimi ayrıştırılamadı. Sunucu güncellemesi gerekiyor.")
+                    if "unable to extract" in output or "signature" in output or "javascript" in output:
+                        print("Conversion failed: yt-dlp extractor/JS challenge issue", flush=True)
+                        return self.respond_json(
+                            503,
+                            "YouTube biçimi çözümlenemedi. Sunucu güncellemesi gerekebilir.",
+                            error_code="EXTRACTOR_UPDATE_NEEDED",
+                            retry_after=300,
+                        )
                     print(f"Conversion failed: yt-dlp exit code {exc.returncode}", flush=True)
                     return self.respond_json(502, "Video alınamadı veya MP3 oluşturulamadı.")
                 except FileNotFoundError as exc:
@@ -222,7 +246,7 @@ if __name__ == "__main__":
         raise SystemExit("API anahtarı en az 16 karakter olmalı.")
     Handler.api_key = key
     Handler.public_mode = public_mode
-    print(f"Tools present: yt-dlp={bool(shutil.which('yt-dlp'))}, ffmpeg={bool(shutil.which('ffmpeg'))}, node={bool(shutil.which('node'))}, deno={bool(shutil.which('deno'))}", flush=True)
+    print(f"Tools present: yt-dlp={bool(shutil.which('yt-dlp'))}, ffmpeg={bool(shutil.which('ffmpeg'))}, deno={bool(shutil.which('deno'))}, remote_ejs={ENABLE_REMOTE_EJS}", flush=True)
     diagnose_id = os.getenv("LINK_MP3_DIAG_VIDEO_ID", "")
     if VIDEO_ID.fullmatch(diagnose_id):
         print("Starting single YouTube metadata diagnostic (no download)", flush=True)
