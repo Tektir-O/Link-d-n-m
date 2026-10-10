@@ -19,7 +19,9 @@ object IntroSelection {
     fun proposal(rawEstimateMs: Long, durationMs: Long): Long? {
         if (rawEstimateMs < 3000L || rawEstimateMs > 38_000L) return null
         val start = clamp(rawEstimateMs - PRE_ROLL_MS, durationMs)
-        return start.takeIf { it > 0L }
+        // Keep the slider, preview and actual exported audio at the same 0.5 s position.
+        val snapped = (start / STEP_MS) * STEP_MS
+        return snapped.takeIf { it > 0L }
     }
 
     fun offset(currentMs: Long, changeMs: Long, durationMs: Long): Long =
