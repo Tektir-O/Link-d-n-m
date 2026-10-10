@@ -301,6 +301,7 @@ class Mp3ConverterActivity : Activity() {
             return
         }
         if (captchaRequired && captchaToken.isNullOrBlank()) {
+            busy.set(false)
             status.text = "Önce Ben robot değilim doğrulamasını tamamla."
             return
         }
