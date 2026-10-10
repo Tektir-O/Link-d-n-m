@@ -2,224 +2,280 @@ package com.kadir.linkdnm
 
 import android.app.Activity
 import android.content.ClipboardManager
-import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
-import android.os.Build
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Environment
-import android.provider.MediaStore
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Only the public HTTPS server address ships in the APK. No API secret is included.
- * The server performs its own usage limits; Android never asks for a key.
- */
+/** No secret in the APK. Multiple phones can use the public HTTPS endpoint. */
 class Mp3ConverterActivity : Activity() {
     private companion object {
-        const val CONVERT_ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert"
-        const val MAX_MP3_BYTES = 100L * 1024L * 1024L
+        const val ENDPOINT = "https://link-mp3-api-production.up.railway.app/convert"
+        const val PREFS = "link_mp3_v2"
+        val BG = Color.rgb(241, 247, 245)
+        val INK = Color.rgb(24, 55, 48)
+        val GREEN = Color.rgb(13, 116, 91)
+        val PALE = Color.rgb(224, 243, 236)
+        val GREY = Color.rgb(96, 117, 110)
     }
-
-    private val background = Color.rgb(245, 247, 244)
-    private val green = Color.rgb(22, 118, 97)
-    private val darkGreen = Color.rgb(11, 72, 64)
-    private lateinit var linkField: EditText
+    private lateinit var link: EditText
     private lateinit var status: TextView
-    private lateinit var convertButton: Button
+    private lateinit var progress: ProgressBar
+    private lateinit var start: Button
+    private lateinit var cancel: Button
+    private lateinit var qualityButtons: Map<Int, Button>
+    private val busy = AtomicBoolean(false)
+    @Volatile private var stopped = false
+    @Volatile private var connection: HttpURLConnection? = null
+    private var quality = Mp3Options.DEFAULT_BITRATE
+    private val ui = Handler(Looper.getMainLooper())
 
-    private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
-    private fun label(message: String, size: Float = 15f, color: Int = Color.DKGRAY) =
-        TextView(this).apply { text = message; textSize = size; setTextColor(color) }
-
-    private fun add(body: LinearLayout, view: View, bottom: Int = 14) {
-        body.addView(view, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(bottom) })
+    private fun dp(i: Int) = (resources.displayMetrics.density * i + 0.5f).toInt()
+    private fun rounded(color: Int, radius: Int = 16) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
+    }
+    private fun label(value: String, size: Float = 14f, color: Int = INK, bold: Boolean = false) =
+        TextView(this).apply {
+            text = value
+            textSize = size
+            setTextColor(color)
+            if (bold) setTypeface(null, Typeface.BOLD)
+        }
+    private fun stack(pad: Int) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+    }
+    private fun add(parent: LinearLayout, item: View, gap: Int = 12) {
+        parent.addView(item, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(gap) })
+    }
+    private fun action(caption: String, primary: Boolean = false) = Button(this).apply {
+        text = caption
+        isAllCaps = false
+        textSize = 15f
+        minHeight = dp(48)
+        setTextColor(if (primary) Color.WHITE else GREEN)
+        background = rounded(if (primary) GREEN else PALE, 12)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val body = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(25), dp(20), dp(40))
-        }
-        add(body, label("BAĞLANTIDAN MP3", 25f, darkGreen), 8)
-        add(body, label("YouTube bağlantısını yapıştır, MP3 olarak telefonuna kaydet.", 16f), 22)
-        add(body, label("YouTube video bağlantısı"), 9)
-        linkField = EditText(this).apply {
+        quality = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("quality", 192)
+            .takeIf { Mp3Options.validBitrate(it) } ?: 192
+        val root = stack(16)
+        val hero = stack(19).apply { background = rounded(INK, 24) }
+        add(hero, label("◉  LINK MP3 PRO", 24f, Color.WHITE, true), 8)
+        add(hero, label("Bağlantıyı yapıştır, sesi kaydet.", 15f, Color.rgb(205, 231, 221)), 6)
+        add(hero, label("v2.0  •  Reklamsız  •  Üyeliksiz", 12f, Color.rgb(175, 218, 200)), 0)
+        add(root, hero, 17)
+
+        val form = stack(16).apply { background = rounded(Color.WHITE, 20) }
+        add(form, label("YouTube video bağlantısı", 15f, INK, true), 6)
+        link = EditText(this).apply {
             hint = "https://youtu.be/..."
-            textSize = 16f
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setSingleLine(true)
+            textSize = 15f
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            background = rounded(BG, 12)
+            setPadding(dp(13), dp(12), dp(13), dp(12))
         }
-        add(body, linkField, 8)
-        val paste = Button(this).apply {
-            text = "Bağlantıyı Yapıştır"
-            isAllCaps = false
+        add(form, link, 8)
+        add(form, action("Bağlantıyı Yapıştır").apply {
             setOnClickListener {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = clipboard.primaryClip
-                val link = if (clip != null && clip.itemCount > 0) {
-                    clip.getItemAt(0).coerceToText(this@Mp3ConverterActivity).toString()
-                } else ""
-                if (link.isBlank()) {
+                val board = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val content = board.primaryClip?.takeIf { it.itemCount > 0 }
+                    ?.getItemAt(0)?.coerceToText(this@Mp3ConverterActivity)?.toString()
+                if (content.isNullOrBlank()) {
                     Toast.makeText(this@Mp3ConverterActivity, "Panoda bağlantı yok.", Toast.LENGTH_SHORT).show()
-                } else linkField.setText(link.trim())
+                } else link.setText(content.trim())
+            }
+        }, 19)
+        add(form, label("MP3 ses kalitesi", 15f, INK, true), 4)
+        add(form, label("Seçilen değer kaynak sesin kalitesini yükseltmez.", 12f, GREY), 9)
+        val choices = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        qualityButtons = Mp3Options.bitrates.associateWith { rate ->
+            action(rate.toString() + " kbps").also { b ->
+                choices.addView(b, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+                    rightMargin = dp(if (rate == 320) 0 else 5)
+                })
+                b.setOnClickListener {
+                    quality = rate
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("quality", rate).apply()
+                    updateQuality()
+                }
             }
         }
-        add(body, paste, 22)
-        convertButton = Button(this).apply {
-            text = "MP3'e Dönüştür ve İndir"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setBackgroundColor(green)
-            setOnClickListener { startConversion() }
+        updateQuality()
+        add(form, choices, 15)
+        start = action("↓  MP3'e Dönüştür ve İndir", true).apply {
+            setOnClickListener { download() }
         }
-        add(body, convertButton, 13)
-        status = label("Hazır. Sunucu otomatik bağlıdır.", 14f, darkGreen).apply {
-            gravity = Gravity.CENTER
+        add(form, start, 8)
+        cancel = action("İndirmeyi İptal Et").apply {
+            visibility = View.GONE
+            setOnClickListener {
+                stopped = true
+                status.text = "İptal ediliyor..."
+                connection?.disconnect()
+            }
         }
-        add(body, status, 20)
-        add(body, label(
-            "Sunucu adresi otomatik ayarlıdır. API anahtarı girmen gerekmez. " +
-                "Kullanım kotası ve YouTube erişim sınırlamaları geçerlidir. " +
-                "Yalnızca indirme iznin olan içerikleri kullan.", 13f
-        ))
+        add(form, cancel, 8)
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            visibility = View.GONE
+            isIndeterminate = true
+            max = 100
+            progressTintList = ColorStateList.valueOf(GREEN)
+        }
+        add(form, progress, 8)
+        status = label("Hazır. Bağlantı girip indir'e bas.", 13f, GREY)
+        add(form, status, 0)
+        add(root, form, 14)
+
+        val libraryCard = stack(16).apply { background = rounded(Color.WHITE, 20) }
+        add(libraryCard, label("♪  MP3 Arşivim", 19f, INK, true), 7)
+        add(libraryCard, label("Dosyaları dinle, paylaş, sil veya yeniden aç.", 13f, GREY), 12)
+        add(libraryCard, action("İndirilen MP3'leri Aç").apply {
+            setOnClickListener { startActivity(Intent(this@Mp3ConverterActivity, Mp3LibraryActivity::class.java)) }
+        }, 0)
+        add(root, libraryCard, 14)
+        add(root, label("Kayıt konumu: Dosyalarım → Download → LinkMP3\n" +
+            "Sunucu otomatik bağlıdır. Sadece indirme hakkın olan içerikleri kullan.",
+            12f, GREY), 0)
+
         setContentView(ScrollView(this).apply {
-            setBackgroundColor(this@Mp3ConverterActivity.background)
-            addView(body)
+            setBackgroundColor(BG)
+            addView(root)
+            fillViewport = true
         })
+        readShared(intent)
     }
 
-    private fun startConversion() {
-        val canonical = try {
-            YoutubeLink.canonical(linkField.text.toString())
-        } catch (e: IllegalArgumentException) {
-            status.text = e.message
-            return
+    private fun updateQuality() {
+        for ((rate, b) in qualityButtons) {
+            val active = rate == quality
+            b.background = rounded(if (active) GREEN else PALE, 11)
+            b.setTextColor(if (active) Color.WHITE else GREEN)
         }
-
-        convertButton.isEnabled = false
-        status.text = "MP3 hazırlanıyor, lütfen bekle..."
+    }
+    private fun readShared(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            intent.getStringExtra(Intent.EXTRA_TEXT)?.let {
+                val raw = it.trim().split(Regex("\\s+")).firstOrNull { part ->
+                    part.startsWith("https://")
+                } ?: it.trim()
+                link.setText(raw)
+            }
+        }
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        readShared(intent)
+    }
+    private fun render(block: () -> Unit) {
+        runOnUiThread { if (!isDestroyed && !isFinishing) block() }
+    }
+    private fun download() {
+        if (!busy.compareAndSet(false, true)) return
+        val youtube = try { YoutubeLink.canonical(link.text.toString()) }
+            catch (e: IllegalArgumentException) {
+                busy.set(false)
+                status.text = e.message ?: "Bağlantı hatalı."
+                return
+            }
+        val rate = quality
+        stopped = false
+        start.isEnabled = false
+        cancel.visibility = View.VISIBLE
+        progress.visibility = View.VISIBLE
+        progress.isIndeterminate = true
+        status.text = "Ses hazırlanıyor..."
         Thread {
+            var request: HttpURLConnection? = null
             try {
-                val fileName = downloadMp3(canonical)
-                runOnUiThread {
-                    if (!isDestroyed) {
-                        status.text = "MP3 kaydedildi: " + fileName
-                        Toast.makeText(this, "MP3 kaydedildi", Toast.LENGTH_LONG).show()
+                request = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    instanceFollowRedirects = false
+                    connectTimeout = 20000
+                    readTimeout = 330000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "audio/mpeg")
+                }
+                connection = request
+                val data = JSONObject().put("url", youtube).put("quality", rate)
+                    .toString().toByteArray(Charsets.UTF_8)
+                request.outputStream.use { it.write(data) }
+                if (stopped) throw IOException("İptal edildi.")
+                if (request.responseCode != 200) {
+                    val message = request.errorStream?.bufferedReader()?.use { it.readText().take(1200) } ?: ""
+                    val error = try { JSONObject(message).optString("error", "") } catch (_: Exception) { "" }
+                    throw IOException(error.ifBlank { "Sunucu hatası: " + request.responseCode })
+                }
+                if (request.contentType?.substringBefore(";")?.trim() != "audio/mpeg")
+                    throw IOException("Sunucu geçerli MP3 göndermedi.")
+                val size = request.contentLengthLong
+                if (size !in 1..Mp3Storage.MAX_BYTES) throw IOException("MP3 boyutu geçersiz.")
+                val id = youtube.substringAfter("v=")
+                val fileName = Mp3Options.outputName(id, rate, System.currentTimeMillis())
+                render {
+                    progress.isIndeterminate = false
+                    progress.progress = 0
+                    status.text = "MP3 indiriliyor: %0"
+                }
+                request.inputStream.use { stream ->
+                    Mp3Storage(this).save(stream, size, fileName, { stopped }) { done, total ->
+                        val percent = (done * 100 / total).toInt().coerceIn(0, 100)
+                        render {
+                            progress.progress = percent
+                            status.text = "MP3 indiriliyor: %" + percent
+                        }
                     }
+                }
+                render {
+                    status.text = "✓ Kaydedildi: " + fileName
+                    Toast.makeText(this, "MP3 başarıyla kaydedildi.", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    if (!isDestroyed) {
-                        status.text = "Hata: " + (e.message ?: "Dönüştürülemedi.")
-                    }
+                render {
+                    status.text = if (stopped) "İndirme iptal edildi."
+                        else "Hata: " + (e.message ?: "Bağlantı sorunu")
                 }
             } finally {
-                runOnUiThread { if (!isDestroyed) convertButton.isEnabled = true }
+                request?.disconnect()
+                connection = null
+                busy.set(false)
+                render {
+                    start.isEnabled = true
+                    cancel.visibility = View.GONE
+                    progress.visibility = View.GONE
+                }
             }
         }.start()
     }
-
-    private fun downloadMp3(link: String): String {
-        val request = URL(CONVERT_ENDPOINT).openConnection() as HttpURLConnection
-        request.requestMethod = "POST"
-        request.instanceFollowRedirects = false
-        request.connectTimeout = 20_000
-        request.readTimeout = 330_000
-        request.doOutput = true
-        request.setRequestProperty("Content-Type", "application/json")
-        request.setRequestProperty("Accept", "audio/mpeg")
-        try {
-            val payload = JSONObject().put("url", link).toString().toByteArray(Charsets.UTF_8)
-            request.outputStream.use { it.write(payload) }
-            if (request.responseCode != 200) {
-                val response = request.errorStream?.bufferedReader()?.use { it.readText().take(1000) } ?: ""
-                val message = try { JSONObject(response).optString("error", "") }
-                              catch (_: Exception) { "" }
-                throw IOException(message.ifBlank { "Sunucu hatası: " + request.responseCode })
-            }
-            if (request.contentType?.substringBefore(';')?.trim() != "audio/mpeg") {
-                throw IOException("Sunucu MP3 verisi göndermedi.")
-            }
-            val total = request.contentLengthLong
-            if (total <= 0L || total > MAX_MP3_BYTES) {
-                throw IOException("Dosya boyutu geçersiz veya 100 MB'dan büyük.")
-            }
-            val fileName = "youtube-" + link.substringAfter("v=") + ".mp3"
-            request.inputStream.use { saveMp3(it, total, fileName) }
-            return fileName
-        } finally {
-            request.disconnect()
-        }
-    }
-
-    private fun copyWithLimit(input: InputStream, output: java.io.OutputStream, total: Long) {
-        val buffer = ByteArray(64 * 1024)
-        var copied = 0L
-        var lastUpdate = 0L
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            copied += count
-            if (copied > MAX_MP3_BYTES) throw IOException("100 MB sınırı aşıldı.")
-            output.write(buffer, 0, count)
-            if (copied - lastUpdate >= 512 * 1024L) {
-                val percent = (copied * 100 / total).coerceIn(0, 100)
-                runOnUiThread {
-                    if (!isDestroyed) status.text = "MP3 indiriliyor: %" + percent
-                }
-                lastUpdate = copied
-            }
-        }
-        if (copied != total) throw IOException("İndirme tamamlanamadı.")
-    }
-
-    private fun saveMp3(input: InputStream, total: Long, fileName: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val metadata = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                put(MediaStore.Downloads.MIME_TYPE, "audio/mpeg")
-                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/LinkMP3")
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
-            val output = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, metadata)
-                ?: throw IOException("İndirilenler klasörü açılamadı.")
-            try {
-                contentResolver.openOutputStream(output)?.use { copyWithLimit(input, it, total) }
-                    ?: throw IOException("MP3 dosyası kaydedilemedi.")
-                val finished = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
-                contentResolver.update(output, finished, null, null)
-            } catch (e: Exception) {
-                contentResolver.delete(output, null, null)
-                throw e
-            }
-        } else {
-            val dir = getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-                ?: throw IOException("Müzik klasörü açılamadı.")
-            if (!dir.exists() && !dir.mkdirs()) throw IOException("Klasör oluşturulamadı.")
-            val target = File(dir, fileName)
-            try {
-                FileOutputStream(target).use { copyWithLimit(input, it, total) }
-            } catch (e: Exception) {
-                target.delete()
-                throw e
-            }
-        }
+    override fun onDestroy() {
+        stopped = true
+        connection?.disconnect()
+        ui.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 }
