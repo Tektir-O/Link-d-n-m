@@ -1,5 +1,6 @@
 """Self-hosted YouTube video link to MP3 service for permitted media."""
 import hmac
+import html
 import json
 import os
 import re
@@ -11,11 +12,12 @@ from collections import deque
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, urlencode
+from urllib.request import Request, urlopen
 
 VIDEO_ID = re.compile(r"^[a-zA-Z0-9_-]{11}$")
 MAX_MP3_BYTES = 100 * 1024 * 1024
-MAX_REQUEST_BYTES = 2048
+MAX_REQUEST_BYTES = 4096
 CONVERT_TIMEOUT_SECONDS = 300
 MAX_DURATION_SECONDS = 5400
 QUALITIES = {128, 192, 320}
@@ -24,6 +26,34 @@ DEFAULT_QUALITY = 192
 # signature support, but cannot override a YouTube login/bot challenge.
 ENABLE_REMOTE_EJS = os.getenv("LINK_MP3_REMOTE_EJS", "0") == "1"
 SLOTS = threading.BoundedSemaphore(2)
+
+TURNSTILE_SITEKEY = os.getenv("TURNSTILE_SITEKEY", "").strip()
+TURNSTILE_SECRET = os.getenv("TURNSTILE_SECRET", "").strip()
+TURNSTILE_HOSTNAME = os.getenv("TURNSTILE_HOSTNAME", "").strip().lower()
+TURNSTILE_ACTION = "mp3_convert"
+
+
+def check_captcha(token: str, secret: str, hostname: str) -> bool:
+    """Validate a one-use Turnstile token on the server, not in the APK."""
+    if not isinstance(token, str) or not 3 <= len(token) <= 2048:
+        return False
+    if not secret or not hostname:
+        return False
+    payload = urlencode({"secret": secret, "response": token}).encode("ascii")
+    req = Request("https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                  data=payload, method="POST",
+                  headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urlopen(req, timeout=10) as response:
+            if response.status != 200:
+                return False
+            data = json.loads(response.read(8192))
+        return (data.get("success") is True
+                and data.get("hostname", "").lower() == hostname
+                and data.get("action") == TURNSTILE_ACTION)
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
 
 # Strict caps for public, no-login mobile conversions. Limits are per running instance;
 # for a multi-replica deployment, put a centralized limiter at the reverse proxy.
@@ -126,7 +156,10 @@ def convert(url: str, video_id: str, folder: Path, quality: int = DEFAULT_QUALIT
 class Handler(BaseHTTPRequestHandler):
     api_key = ""
     public_mode = False
-    server_version = "LinkMp3/1.1"
+    captcha_sitekey = TURNSTILE_SITEKEY
+    captcha_secret = TURNSTILE_SECRET
+    captcha_hostname = TURNSTILE_HOSTNAME
+    server_version = "LinkMp3/1.2"
 
     def respond_json(self, status: int, message: str, error_code: str = "", retry_after: int = 0):
         data = {"error": message}
@@ -142,7 +175,46 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+
+    def _captcha_enabled(self) -> bool:
+        return bool(self.captcha_sitekey and self.captcha_secret and self.captcha_hostname)
+
+    def captcha_page(self):
+        if not self._captcha_enabled():
+            return self.respond_json(404, "Doğrulama etkin değil.")
+        # This HTML must be loaded via https:// (not file://) in the Android WebView.
+        sitekey = html.escape(self.captcha_sitekey, quote=True)
+        page = f"""<!doctype html><html lang="tr"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font:16px sans-serif;margin:12px;background:#fff">
+<p>Ben robot değilim</p>
+<div class="cf-turnstile" data-sitekey="{sitekey}" data-action="mp3_convert"
+ data-appearance="always" data-callback="verified"
+ data-expired-callback="expired" data-error-callback="expired"></div>
+<script>function verified(token){{AndroidCaptcha.onVerified(token);}}
+function expired(){{AndroidCaptcha.onExpired();}}</script>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</body></html>""".encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(page)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' https://challenges.cloudflare.com 'unsafe-inline'; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'")
+        self.end_headers()
+        self.wfile.write(page)
+
     def do_GET(self):
+        if self.path == "/captcha":
+            return self.captcha_page()
+        if self.path == "/captcha-config":
+            body = json.dumps({"required": self._captcha_enabled()}, separators=(",", ":")).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return self.wfile.write(body)
         if self.path != "/health":
             return self.respond_json(404, "Sayfa bulunamadı.")
         body = b'{"status":"ok"}'
@@ -177,8 +249,14 @@ class Handler(BaseHTTPRequestHandler):
             quality = request.get("quality", DEFAULT_QUALITY)
             if type(quality) is not int or quality not in QUALITIES:
                 return self.respond_json(400, "Kalite 128, 192 veya 320 kbps olmalı.")
+            captcha_token = request.get("captcha_token", "")
         except (ValueError, UnicodeError) as exc:
             return self.respond_json(400, str(exc))
+        if self._captcha_enabled() and not check_captcha(
+            captcha_token, self.captcha_secret, self.captcha_hostname
+        ):
+            return self.respond_json(403, "Ben robot değilim doğrulamasını tamamla.",
+                                     error_code="CAPTCHA_REQUIRED")
         if not SLOTS.acquire(blocking=False):
             return self.respond_json(429, "Sunucu meşgul. Tekrar deneyin.")
         try:
@@ -250,6 +328,10 @@ if __name__ == "__main__":
         raise SystemExit("Gizli API anahtarı gerekli veya LINK_MP3_PUBLIC_MODE=1 olmalı.")
     if key and len(key) < 16:
         raise SystemExit("API anahtarı en az 16 karakter olmalı.")
+    if bool(TURNSTILE_SITEKEY) != bool(TURNSTILE_SECRET) or (
+        bool(TURNSTILE_SITEKEY) and not TURNSTILE_HOSTNAME
+    ):
+        raise SystemExit("Turnstile için sitekey, secret ve hostname birlikte ayarlanmalı.")
     Handler.api_key = key
     Handler.public_mode = public_mode
     print(f"Tools present: yt-dlp={bool(shutil.which('yt-dlp'))}, ffmpeg={bool(shutil.which('ffmpeg'))}, deno={bool(shutil.which('deno'))}, remote_ejs={ENABLE_REMOTE_EJS}", flush=True)
