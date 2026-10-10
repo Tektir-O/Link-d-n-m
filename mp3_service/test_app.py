@@ -45,6 +45,8 @@ class UrlTests(unittest.TestCase):
             def fake_run(cmd, **kwargs):
                 self.assertIn("--no-playlist", cmd)
                 self.assertEqual(cmd[cmd.index("--audio-format") + 1], "mp3")
+                self.assertEqual(cmd[cmd.index("--audio-quality") + 1], "192K")
+                self.assertIn("--match-filter", cmd)
                 self.assertEqual(cmd[-1], "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
                 Path(directory, "dQw4w9WgXcQ.mp3").write_bytes(b"ID3fake")
             with patch("app.subprocess.run", side_effect=fake_run):
@@ -98,7 +100,7 @@ class HttpTests(unittest.TestCase):
             Handler.api_key = ""
             Handler.public_mode = True
 
-            def fake_converter(url, video_id, folder):
+            def fake_converter(url, video_id, folder, quality=192):
                 output = folder / (video_id + ".mp3")
                 output.write_bytes(b"ID3-test-public-audio")
                 return output
@@ -122,6 +124,29 @@ class HttpTests(unittest.TestCase):
             self.assertTrue(allow_public_request("192.0.2.10", now=5000))
             PUBLIC_REQUESTS.clear()
             CLIENT_REQUESTS.clear()
+
+
+    def test_quality_options(self):
+        from app import QUALITIES
+        self.assertEqual(QUALITIES, {128, 192, 320})
+        for invalid in (0, 256, 999, "320", None, True):
+            status, _, _ = self.post("/convert", payload={
+                "url": "https://youtu.be/dQw4w9WgXcQ", "quality": invalid,
+            })
+            self.assertEqual(status, 400, str(invalid))
+
+    def test_quality_forwarded(self):
+        def create_audio(url, video_id, folder, quality=192):
+            self.assertEqual(quality, 320)
+            output = folder / (video_id + ".mp3")
+            output.write_bytes(b"ID3-quality")
+            return output
+        with patch("app.convert", side_effect=create_audio):
+            status, body, _ = self.post("/convert", payload={
+                "url": "https://youtu.be/dQw4w9WgXcQ", "quality": 320,
+            })
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"ID3-quality")
 
     def test_mp3_response(self):
         def fake_converter(url, video_id, folder):
