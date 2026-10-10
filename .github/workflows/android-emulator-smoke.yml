@@ -47,6 +47,8 @@ jobs:
             python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'BAĞLANTIYI YAPIŞTIR' in joined, joined; assert 'MP3 İNDİR' in joined, joined; assert 'İndirilen müziklerim' in joined, joined; assert 'İndirilen MP3' not in joined, 'Old second-page button still shown'"
             adb shell dumpsys activity activities | grep -F Mp3ConverterActivity
             gradle --no-daemon :app:connectedDebugAndroidTest
+            # Gradle connected tests can uninstall the tested application at teardown.
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell am start -n com.kadir.linkmp3.pro/com.kadir.linkdnm.Mp3ConverterActivity
             sleep 2
             adb shell pidof com.kadir.linkmp3.pro
