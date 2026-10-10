@@ -27,7 +27,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install APK and start both Android activities
+      - name: Install app, verify one screen and test saving/listing MP3
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -39,14 +39,17 @@ jobs:
           script: |
             gradle --no-daemon :app:assembleDebug
             adb install -r app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -n com.kadir.linkmp3.pro/com.kadir.linkdnm.Mp3ConverterActivity
+            adb shell am start -n com.kadir.muzikindir.kolay/com.kadir.linkdnm.Mp3ConverterActivity
             sleep 5
-            adb shell pidof com.kadir.linkmp3.pro
-            adb shell input swipe 510 1480 510 520 450
+            adb shell pidof com.kadir.muzikindir.kolay
             adb shell uiautomator dump /sdcard/window.xml
             adb pull /sdcard/window.xml window.xml >/dev/null
-            python3 -c "import re,subprocess,xml.etree.ElementTree as ET; root=ET.parse('window.xml').getroot(); nodes=[n for n in root.iter('node') if 'MP3' in n.get('text','') and 'Aç' in n.get('text','')]; assert nodes, 'MP3 archive button not found'; bounds=[int(x) for x in re.findall('[0-9]+',nodes[0].get('bounds',''))]; assert len(bounds)==4; subprocess.run(['adb','shell','input','tap',str((bounds[0]+bounds[2])//2),str((bounds[1]+bounds[3])//2)],check=True)"
-            sleep 3
-            adb shell dumpsys activity activities | grep -F Mp3LibraryActivity
-            adb shell pidof com.kadir.linkmp3.pro
+            python3 -c "import xml.etree.ElementTree as ET; nodes=[n.get('text','') for n in ET.parse('window.xml').getroot().iter('node')]; joined=' '.join(nodes); assert 'BAĞLANTIYI YAPIŞTIR' in joined, joined; assert 'MP3 İNDİR' in joined, joined; assert 'İndirilen müziklerim' in joined, joined; assert 'İndirilen MP3' not in joined, 'Old second-page button still shown'"
+            adb shell dumpsys activity activities | grep -F Mp3ConverterActivity
+            gradle --no-daemon :app:connectedDebugAndroidTest
+            # Gradle connected tests can uninstall the tested application at teardown.
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -n com.kadir.muzikindir.kolay/com.kadir.linkdnm.Mp3ConverterActivity
+            sleep 2
+            adb shell pidof com.kadir.muzikindir.kolay
             adb logcat -d -t 500 | grep -F 'FATAL EXCEPTION' && exit 1 || true
