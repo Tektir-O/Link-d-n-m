@@ -152,7 +152,8 @@ class Mp3ConverterActivity : Activity() {
             textSize = 16f
             setOnClickListener { pickFileToConvert() }
         }
-        add(form, uploadButton, 12)
+        add(form, uploadButton, 4)
+        add(form, label("Dosya dönüşüm için sunucuya gönderilir, işlem sonunda silinir. En fazla 60 MB.", 13f, GRAY), 12)
         cancelButton = button("İptal Et", height = 48).apply {
             textSize = 16f
             visibility = View.GONE
