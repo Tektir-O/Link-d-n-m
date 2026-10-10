@@ -37,3 +37,16 @@ Maksimum süre 90 dakika, MP3 dosyası en çok 100 MB, kaynak dosya sınırlamas
 
 Docker derleme: `docker build -t linkmp3-v2 ./mp3_service`.
 Docker konteynerindeki yt-dlp/FFmpeg kurulum süresi dağıtım aşamasındadır; Railway'in mevcut üretim servisi henüz bu Docker imajına geçirilmiş değildir. Canlı dağıtım ve cihaz üzerinde test ayrıca yapılmalıdır.
+
+
+## YouTube erişimi ve desteklenen hata tipleri (Ekim 2026)
+
+- `YOUTUBE_VERIFICATION_REQUIRED`: YouTube sunucuya bot/giriş doğrulaması uyguladı. HTTP 503 + `Retry-After: 600`. Bu bir APK, FFmpeg veya klasör hatası değildir. Arka arkaya otomatik deneme yapılmaz.
+- `EXTRACTOR_UPDATE_NEEDED`: YouTube JavaScript/biçim ayrıştırma güncellemesi gerekli olabilir. HTTP 503 + `Retry-After: 300`.
+- `/health` yalnızca servis çalışıyor mu sorusuna yanıt verir; YouTube tarafından videoya izin verildiğini **garanti etmez**.
+- Deno, yt-dlp'nin desteklediği JavaScript çalışma ortamıdır. Docker imajı Deno ve yt-dlp'nin `default` bağımlılıklarındaki EJS bileşenini birlikte içerir.
+- Gerektiğinde `LINK_MP3_REMOTE_EJS=1` ile resmi `ejs:npm` bileşeni kullanılabilir; ek ağ gerektirir. Bu seçenek, sunucu IP'sine uygulanan giriş doğrulamasını ortadan kaldırma garantisi değildir.
+- Giriş/kullanıcı çerezlerini APK'ya veya GitHub'a koymayın. Şarkı/video indirme hakkı bulunan içeriklerde kullanın.
+- Railway'de kaynak olarak **GitHub repo bağlantısı ayrı izin ister**. Bağlanmadıysa Docker imajı testlerde başarılı olsa bile canlı Railway servisi eski kaynak imajını kullanmaya devam edebilir.
+
+Testler: `cd mp3_service && python -m unittest -v test_app.py`. CI, Docker imajının Deno / EJS / FFmpeg araçlarını, `/health` yanıtını, geçersiz URL reddini ve Android MP3/video testlerini denetler.
