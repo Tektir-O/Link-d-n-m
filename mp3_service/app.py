@@ -88,14 +88,20 @@ def canonical_youtube_url(raw: str) -> tuple[str, str]:
     return f"https://www.youtube.com/watch?v={video_id}", video_id
 
 
+def js_runtime_args() -> list[str]:
+    """Use the exact same JS challenge support in downloads and diagnostics."""
+    if not shutil.which("deno"):
+        return []
+    result = ["--js-runtimes", "deno"]
+    if ENABLE_REMOTE_EJS:
+        result += ["--remote-components", "ejs:npm"]
+    return result
+
+
 def convert(url: str, video_id: str, folder: Path, quality: int = DEFAULT_QUALITY) -> Path:
     if type(quality) is not int or quality not in QUALITIES:
         raise ValueError("Desteklenmeyen MP3 kalitesi.")
-    # Use the recommended JavaScript runtime when present. yt-dlp's official
-    # bundle typically already includes EJS; npm fetching remains opt-in.
-    runtime_options = ["--js-runtimes", "deno"] if shutil.which("deno") else []
-    if ENABLE_REMOTE_EJS and shutil.which("deno"):
-        runtime_options += ["--remote-components", "ejs:npm"]
+    runtime_options = js_runtime_args()
     subprocess.run(
         [
             "yt-dlp", "--ignore-config", *runtime_options,
@@ -252,7 +258,8 @@ if __name__ == "__main__":
         print("Starting single YouTube metadata diagnostic (no download)", flush=True)
         try:
             diag = subprocess.run([
-                "yt-dlp", "--skip-download", "--no-playlist", "--no-progress",
+                "yt-dlp", "--ignore-config", *js_runtime_args(),
+                "--skip-download", "--no-playlist", "--no-progress",
                 "--no-warnings", "--print", "id", "--socket-timeout", "12",
                 "--retries", "0", "--",
                 f"https://www.youtube.com/watch?v={diagnose_id}",
