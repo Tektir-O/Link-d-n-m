@@ -486,6 +486,15 @@ class Mp3ConverterActivity : Activity() {
             }
             actions.addView(play, LinearLayout.LayoutParams(0, dp(52), 1.25f)
                 .apply { rightMargin = dp(6) })
+            val edit = button("✂ Kes", height = 48).apply {
+                textSize = 15f
+                setOnClickListener {
+                    startActivity(Intent(this@Mp3ConverterActivity, AudioCutActivity::class.java)
+                        .putExtra("audio_uri", entry.uri.toString()))
+                }
+            }
+            actions.addView(edit, LinearLayout.LayoutParams(0, dp(52), 0.85f)
+                .apply { rightMargin = dp(6) })
             val share = button("Paylaş", height = 48).apply {
                 textSize = 15f
                 setOnClickListener { share(entry) }
