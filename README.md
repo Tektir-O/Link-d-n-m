@@ -44,3 +44,18 @@ Bağlantıyı yapıştırıp **MP3'e Dönüştür ve İndir** düğmesine basabi
 - Çalışan v1 yedeği: `backup/v1-working-20261010`.
 
 **Sınırlar:** Debug APK imzası GitHub Actions iş akışlarında kalıcı olmayabilir. Üzerine kurularak güncellenen final sürümler için sabit ve güvenli imza anahtarı gerekir. Bu projede APK içerisine gizli API anahtarı konmaz. YouTube'un erişim engelleri veya bot kontrolleri dönüşümü engelleyebilir.
+
+
+## v2.3 | Fotoğraf + ses ile video oluşturma
+
+- **Tek ekranda** fotoğraf seç, indirilen MP3 veya telefondan ses seç, **1/2/3/4 dakika** süre belirle, **Video Oluştur** düğmesine bas.
+- Fotoğraf otomatik **720×1280 (9:16)** siyah arka plan üzerinde boyutlandırılır; MP4 **H.264 görüntü + AAC ses** olarak Android cihazda oluşturulur. Fotoğraf ve ses sunucuya yüklenmez.
+- MP3 indirildikten sonra Video Oluştur kısmındaki ses seçimi otomatik güncellenir.
+- Girişteki orkestra bölümünü atlamak için **yerel, yaklaşık ses analizi** başlangıç saniyesi önerir; **insan sesini her zaman doğru tespit ettiği iddia edilmez**. Kullanıcı başlangıç saniyesini sürgüyle düzeltip önizleme dinleyebilir.
+- Seçilen süreden uzun ses kırpılır, kısa ses gerektiğinde döngüye alınır.
+- Android 10+ kayıt konumu **Movies/MuzikVideolarim**; Android 8–9 uygulamaya özel Movies. Galeri üzerinden açılabilir.
+- İşlem sırasında yüzde, iptal ve hata mesajı vardır.
+- Android cihazların video kodlayıcı performansı farklıdır; özellikle dört dakika süren işlem zaman alabilir. Gerçek MP4 oluşturma ve sese uygun video uzunluğu Android cihaz testleri ile teyit edilmelidir.
+- Eski MP3 indirme kodu korunur; video oluşturma yalnızca aynı sayfaya eklenir.
+
+Bu projeyi yalnızca indirme, kopyalama veya paylaşma hakkınızın bulunduğu içeriklerle kullanın.
